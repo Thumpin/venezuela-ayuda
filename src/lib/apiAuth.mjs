@@ -28,8 +28,21 @@ export function generateApiKey() {
 }
 
 // Crea un autenticador con cache. `fetchByHash(hash)` devuelve el partner
-// (`{ partnerId, source, scopes }`) o `null`. Cachea hits y misses por TTL.
-export function createAuthenticator(fetchByHash, { ttlMs = 60_000, now = Date.now } = {}) {
+// (`{ partnerId, source, scopes }`) o `null`; si lanza (error de DB), el error
+// se propaga y NO se cachea (un fallo transitorio no debe bloquear una key
+// válida por todo el TTL).
+//
+// Endurecido para una superficie pública de alto volumen:
+//   - Los hits (keys válidas) se cachean `ttlMs`; los misses solo `missTtlMs`
+//     corto. Los misses son el vector de crecimiento controlable por un atacante
+//     no autenticado (cada key inválida distinta = una entrada), así que su vida
+//     es corta.
+//   - Las entradas expiradas se borran al leerlas, y hay un tope duro de tamaño
+//     (`maxEntries`) que vacía el cache si se rebasa → memoria acotada.
+export function createAuthenticator(
+  fetchByHash,
+  { ttlMs = 60_000, missTtlMs = 5_000, maxEntries = 10_000, now = Date.now } = {}
+) {
   const cache = new Map(); // hash → { value, expires }
 
   return async function authenticate(apiKey) {
@@ -37,10 +50,14 @@ export function createAuthenticator(fetchByHash, { ttlMs = 60_000, now = Date.no
     const hash = hashKey(apiKey);
 
     const hit = cache.get(hash);
-    if (hit && hit.expires > now()) return hit.value;
+    if (hit) {
+      if (hit.expires > now()) return hit.value;
+      cache.delete(hash); // expirada → evict al leer
+    }
 
-    const value = (await fetchByHash(hash)) ?? null;
-    cache.set(hash, { value, expires: now() + ttlMs });
+    const value = (await fetchByHash(hash)) ?? null; // si fetchByHash lanza, se propaga sin cachear
+    if (cache.size >= maxEntries) cache.clear(); // tope duro: memoria acotada
+    cache.set(hash, { value, expires: now() + (value ? ttlMs : missTtlMs) });
     return value;
   };
 }

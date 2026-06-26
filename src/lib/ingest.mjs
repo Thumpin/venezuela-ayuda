@@ -40,6 +40,11 @@ function coords(lat, lng) {
 const oneOf = (v, set, fallback = null) => (set.includes(v) ? v : fallback);
 const err = (m) => ({ ok: false, error: m });
 
+// help_offer.available: default true; clientes con JSON laxo pueden mandar
+// false/"false"/0/"0"/"no" → tratarlos como NO disponible (no voltearlos a true).
+const UNAVAILABLE = new Set([false, "false", 0, "0", "no"]);
+const isAvailable = (v) => !UNAVAILABLE.has(typeof v === "string" ? v.toLowerCase() : v);
+
 // report (forma canónica del socio) + source (de la key) → { ok, table, row } | { ok:false, error }
 export function buildRow(report, source) {
   if (!report || typeof report !== "object") return err("reporte inválido");
@@ -103,7 +108,7 @@ export function buildRow(report, source) {
           description: clean(report.description, LIMITS.description),
           city, latitude, longitude,
           availability: clean(report.availability, LIMITS.availability),
-          available: report.available === false ? false : true,
+          available: isAvailable(report.available),
           contact, // PRIVADO
         },
       };
@@ -119,6 +124,7 @@ export function buildRow(report, source) {
           description: clean(report.description, LIMITS.description),
           severity: oneOf(report.severity, SEVERITY, "PARTIAL"),
           city, latitude, longitude, photo_url,
+          contact, // PRIVADO (damaged_reports.contact, 0005)
           dedup_key: fuzzyKey(name),
         },
       };

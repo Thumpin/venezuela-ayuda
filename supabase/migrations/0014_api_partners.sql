@@ -36,7 +36,8 @@ insert into api_partners (name, source)
 -- Completar columnas multi-fuente en help_offers ---------------------------
 -- 0007 las agregó a checkins, damaged_reports y help_requests, pero NO a
 -- help_offers. Se completan acá para poder ingestar ofertas con atribución +
--- idempotencia.
+-- idempotencia. (No se agrega dedup_key: el dedup fuzzy cross-fuente es de otro
+-- equipo y hoy no cubre ofertas — la ingesta tampoco lo estampa para offers.)
 alter table help_offers add column if not exists source text;
 alter table help_offers add column if not exists source_url text;
 alter table help_offers add column if not exists external_id text;
@@ -59,16 +60,34 @@ alter table damaged_reports alter column source set default 'venezuela-ayuda.com
 
 -- Idempotencia: upsert por (source, external_id) ---------------------------
 -- Un re-push del mismo socio con el mismo external_id actualiza su fila en vez
--- de duplicar. Parcial: solo cuando ambos no son null (los orgánicos sin
--- external_id no entran al índice único).
-create unique index if not exists checkins_source_extid_uidx
-  on checkins (source, external_id) where source is not null and external_id is not null;
-create unique index if not exists help_requests_source_extid_uidx
-  on help_requests (source, external_id) where source is not null and external_id is not null;
-create unique index if not exists help_offers_source_extid_uidx
-  on help_offers (source, external_id) where source is not null and external_id is not null;
-create unique index if not exists damaged_source_extid_uidx
-  on damaged_reports (source, external_id) where source is not null and external_id is not null;
+-- de duplicar.
+--
+-- Índice NO parcial a propósito: PostgREST manda `on_conflict=source,external_id`
+-- sin predicado, y Postgres no puede inferir un índice PARCIAL como target de
+-- ON CONFLICT (error 42P10). Un índice único normal ya trata los NULL como
+-- distintos (NULLS DISTINCT, default), así que los reportes orgánicos sin
+-- external_id no colisionan entre sí.
+--
+-- Dedup defensivo previo: si datos scrapeados existentes ya tuvieran pares
+-- (source, external_id) duplicados, el CREATE UNIQUE INDEX abortaría. Quitamos
+-- duplicados dejando el de menor ctid antes de crear cada índice.
+delete from checkins a using checkins b
+  where a.ctid > b.ctid and a.source = b.source and a.external_id = b.external_id
+  and a.source is not null and a.external_id is not null;
+delete from help_requests a using help_requests b
+  where a.ctid > b.ctid and a.source = b.source and a.external_id = b.external_id
+  and a.source is not null and a.external_id is not null;
+delete from help_offers a using help_offers b
+  where a.ctid > b.ctid and a.source = b.source and a.external_id = b.external_id
+  and a.source is not null and a.external_id is not null;
+delete from damaged_reports a using damaged_reports b
+  where a.ctid > b.ctid and a.source = b.source and a.external_id = b.external_id
+  and a.source is not null and a.external_id is not null;
+
+create unique index if not exists checkins_source_extid_uidx        on checkins (source, external_id);
+create unique index if not exists help_requests_source_extid_uidx   on help_requests (source, external_id);
+create unique index if not exists help_offers_source_extid_uidx     on help_offers (source, external_id);
+create unique index if not exists damaged_source_extid_uidx         on damaged_reports (source, external_id);
 
 -- Nota: el lookup de auth por `key_hash` usa el índice de la constraint UNIQUE
 -- de la columna (no hace falta un índice extra).

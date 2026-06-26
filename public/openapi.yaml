@@ -6,8 +6,8 @@ info:
     API de coordinación de datos tras el terremoto de Venezuela.
 
     `venezuela-ayuda.com` es el **hub central**: los sitios socios **publican**
-    reportes vía `POST /api/ingest` (cerrado por API key) y **leen** el conjunto
-    unificado por las vistas públicas de Supabase REST.
+    reportes vía `POST /api/v1/ingest` (cerrado por API key) y **leen** el
+    conjunto unificado por las vistas públicas de Supabase REST.
 
     ## Autenticación
     La escritura requiere el header `x-api-key`. Las keys las genera y entrega el
@@ -17,9 +17,24 @@ info:
     No mandes `source`: se estampa server-side desde tu key (no falsificable).
     Manda `source_url` (link a tu registro) y un `external_id` estable por reporte.
 
-    ## Idempotencia
+    ## Idempotencia (por socio)
     El upsert es por `(source, external_id)`: reenviar el mismo `external_id`
-    actualiza tu fila, no duplica.
+    actualiza **tu** fila, no duplica. La idempotencia es **por socio**: dos
+    socios distintos reportando la misma entidad quedan como dos filas (la fusión
+    cross-fuente es un proceso aparte).
+
+    ## Coerciones silenciosas (importante)
+    - `missing_person` siempre se guarda con `status=LOOKING_FOR_SOMEONE` (se
+      ignora cualquier `status` que mandes).
+    - `status`/`urgency`/`severity`/`category` inválidos para el tipo caen a un
+      default (no se rechaza la fila): checkin→SAFE, help_request status→OPEN,
+      urgency→MEDIUM, severity→PARTIAL.
+    - Coordenadas fuera del bounding box de Venezuela se descartan (null).
+    - Los campos de texto se recortan a su largo máximo (ver `maxLength`).
+
+    ## Rate limit
+    ~120 solicitudes/60s por socio (best-effort) y máx 200 reportes por solicitud.
+    Ante 429, respeta el header `Retry-After`.
 
     ## Privacidad
     `contact` / teléfonos se guardan en campos privados y **nunca** se devuelven
@@ -41,7 +56,7 @@ servers:
   - url: https://venezuela-ayuda.com
 
 paths:
-  /api/ingest:
+  /api/v1/ingest:
     post:
       summary: Publicar reportes en el hub (push autenticado)
       operationId: ingestReports
@@ -62,16 +77,33 @@ paths:
                     $ref: "#/components/schemas/Report"
       responses:
         "200":
-          description: Procesado (puede incluir rechazos por reporte).
+          description: Procesado (puede incluir rechazos/errores por reporte).
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/IngestResponse"
-        "400": { description: Cuerpo JSON inválido o falta 'reports'. }
-        "401": { description: API key inválida o ausente. }
-        "403": { description: La key no tiene permiso de escritura. }
-        "413": { description: Más de 200 reportes en una solicitud. }
-        "429": { description: Rate limit (ver Retry-After). }
+        "400":
+          description: Cuerpo JSON inválido o falta 'reports'.
+          content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+        "401":
+          description: API key inválida o ausente.
+          content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+        "403":
+          description: La key no tiene permiso de escritura.
+          content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+        "413":
+          description: Más de 200 reportes, o payload demasiado grande.
+          content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+        "429":
+          description: Rate limit.
+          headers:
+            Retry-After:
+              schema: { type: integer }
+              description: Segundos a esperar antes de reintentar.
+          content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+        "503":
+          description: Falla de servicio/DB — toda la escritura falló; reintenta.
+          content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
 
 components:
   securitySchemes:
@@ -80,6 +112,10 @@ components:
       in: header
       name: x-api-key
   schemas:
+    Error:
+      type: object
+      properties:
+        error: { type: string }
     Report:
       type: object
       required: [type, external_id]
@@ -92,15 +128,17 @@ components:
           enum: [missing_person, checkin, help_request, help_offer, damaged_building]
         external_id:
           type: string
+          maxLength: 200
           description: Tu id estable. Requerido (idempotencia).
-        source_url: { type: string, description: Link de vuelta a tu registro. }
-        name: { type: string, description: "Personas (missing_person / checkin)." }
+        source_url: { type: string, maxLength: 500, description: Link de vuelta a tu registro. }
+        name: { type: string, maxLength: 80, description: "Personas (missing_person / checkin)." }
+        message: { type: string, maxLength: 500, description: "missing_person / checkin — nota o última info." }
         status:
           type: string
-          description: "checkin → SAFE/NEEDS_HELP/LOOKING_FOR_SOMEONE; help_request → OPEN/IN_PROGRESS/RESOLVED."
+          description: "checkin → SAFE|NEEDS_HELP|LOOKING_FOR_SOMEONE (default SAFE). help_request → OPEN|IN_PROGRESS|RESOLVED (default OPEN). En missing_person se ignora (siempre LOOKING_FOR_SOMEONE)."
         category:
           type: string
-          description: "help_request → medical|food|water|shelter|transportation|electricity|rescue|tools. help_offer → transportation|food|shelter|medical|supplies|translation."
+          description: "help_request → medical|food|water|shelter|transportation|electricity|rescue|tools. help_offer → transportation|food|shelter|medical|supplies|translation. Inválido para el tipo → fila rechazada."
         urgency:
           type: string
           enum: [LOW, MEDIUM, HIGH, CRITICAL]
@@ -109,26 +147,31 @@ components:
           type: string
           enum: [CRACKS, PARTIAL, COLLAPSE_RISK, COLLAPSED]
           description: "damaged_building (default PARTIAL)."
-        description: { type: string }
-        city: { type: string }
-        place_name: { type: string }
-        latitude: { type: number }
+        description: { type: string, maxLength: 800 }
+        city: { type: string, maxLength: 80 }
+        place_name: { type: string, maxLength: 120, description: "damaged_building lo usa; si falta, cae a `name`." }
+        latitude: { type: number, description: "Descartada si cae fuera de Venezuela." }
         longitude: { type: number }
-        photo_url: { type: string }
-        availability: { type: string, description: "help_offer." }
+        photo_url: { type: string, maxLength: 500 }
+        availability: { type: string, maxLength: 200, description: "help_offer." }
+        available: { type: boolean, default: true, description: "help_offer — false/\"false\"/0/\"no\" = no disponible." }
         contact:
           type: string
+          maxLength: 30
           description: PRIVADO — se guarda, nunca se devuelve por la lectura pública.
     IngestResponse:
       type: object
+      required: [accepted, rejected, errored, results]
       properties:
-        accepted: { type: integer }
-        rejected: { type: integer }
+        accepted: { type: integer, description: Filas escritas (upserted). }
+        rejected: { type: integer, description: "Rechazos de validación (permanentes — no reintentar)." }
+        errored: { type: integer, description: "Fallos de DB (transitorios — reintentar)." }
         results:
           type: array
           items:
             type: object
+            required: [external_id, status]
             properties:
               external_id: { type: [string, "null"] }
               status: { type: string, enum: [upserted, rejected, error] }
-              error: { type: string }
+              error: { type: string, description: "Presente solo en rejected/error." }
