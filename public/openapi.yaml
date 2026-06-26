@@ -7,7 +7,26 @@ info:
 
     `venezuela-ayuda.com` es el **hub central**: los sitios socios **publican**
     reportes vía `POST /api/v1/ingest` (cerrado por API key) y **leen** el
-    conjunto unificado por las vistas públicas de Supabase REST.
+    conjunto unificado por `GET /api/v1/reports` (abierto, sin PII).
+
+    ## Tipos de reporte (`type`)
+    `type` es un **conjunto cerrado de 5 valores** — el catálogo del hub. Es el
+    mismo en escritura (`POST /api/v1/ingest`, campo del reporte) y en lectura
+    (`GET /api/v1/reports`, parámetro requerido). Cada valor representa una clase
+    de reporte y mapea a una tabla/vista concreta:
+
+    | `type` | Qué es | Tabla (escritura) | Vista (lectura, sin PII) |
+    |---|---|---|---|
+    | `missing_person` | Persona desaparecida / se busca | `checkins` (status `LOOKING_FOR_SOMEONE`) | `public_checkins` filtrando `status=LOOKING_FOR_SOMEONE` |
+    | `checkin` | "Estoy a salvo" / "necesito ayuda" | `checkins` (status `SAFE`/`NEEDS_HELP`) | `public_checkins` filtrando `status in (SAFE, NEEDS_HELP)` |
+    | `help_request` | Solicitud de ayuda (médica, agua, rescate…) | `help_requests` | `public_help_requests` |
+    | `help_offer` | Oferta de ayuda / recursos disponibles | `help_offers` | `public_help_offers` |
+    | `damaged_building` | Edificio o estructura dañada | `damaged_reports` | `public_damaged_reports` |
+
+    `missing_person` y `checkin` comparten la tabla/vista `checkins` y se separan
+    por `status` — por eso son dos `type` distintos aunque vivan en la misma vista.
+    Cualquier otro valor de `type` se rechaza (400 en lectura, fila rechazada en
+    escritura).
 
     ## Autenticación
     La escritura requiere el header `x-api-key`. Las keys las genera y entrega el
@@ -40,17 +59,23 @@ info:
     `contact` / teléfonos se guardan en campos privados y **nunca** se devuelven
     por la lectura pública.
 
-    ## Lectura (endpoint que ya existe — Supabase REST)
-    Abierta, sin datos privados. Base: `{SUPABASE_URL}/rest/v1`, header
-    `apikey: {PUBLISHABLE_KEY}`.
+    ## Lectura — `GET /api/v1/reports` (abierta, sin PII)
+    Sin API key (para maximizar difusión). Rate-limit best-effort por IP. Lee de
+    las vistas `public_*` (nunca de las tablas crudas); `phone_private`/`contact`
+    **nunca** se exponen. Selecciona el catálogo con el parámetro `type` (los 5
+    valores de arriba).
 
-      GET /rest/v1/public_checkins?select=*&order=created_at.desc
-      GET /rest/v1/public_help_requests?select=*
-      GET /rest/v1/public_help_offers?select=*
-      GET /rest/v1/public_damaged_reports?select=*
+    Paginación por **cursor estable**: orden `created_at` asc con desempate por
+    `id`. Pasá `since` = el `next_cursor` de la página anterior para traer la
+    siguiente. `next_cursor` es `null` cuando ya no hay más filas.
 
-    Filtros/paginación: los de PostgREST (`limit`, `Range`,
-    `created_at=gt.<cursor>`, `order`). Las vistas omiten `phone_private`/`contact`.
+      GET /api/v1/reports?type=help_request&limit=100
+      GET /api/v1/reports?type=checkin&city=Caracas&since=2026-06-26T10:00:00Z|<uuid>
+
+    El acceso directo a `{SUPABASE_URL}/rest/v1/public_*` (PostgREST) sigue
+    disponible para quien lo prefiera, pero `GET /api/v1/reports` es la vía
+    recomendada: un solo host, sin manejar la publishable key, y el cursor estable
+    resuelve el desempate por `id` que un `created_at` pelón no garantiza.
 
 servers:
   - url: https://venezuela-ayuda.com
@@ -105,6 +130,58 @@ paths:
           description: Falla de servicio/DB — toda la escritura falló; reintenta.
           content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
 
+  /api/v1/reports:
+    get:
+      summary: Leer reportes unificados del hub (abierto, sin PII)
+      operationId: listReports
+      description: |
+        Lectura abierta (sin API key). Devuelve filas de la vista pública
+        correspondiente a `type`, paginadas por cursor estable (`since` +
+        `next_cursor`). Nunca incluye teléfonos ni contactos.
+      parameters:
+        - name: type
+          in: query
+          required: true
+          description: Catálogo del hub (los 5 valores). missing_person/checkin salen de la misma vista, separados por status.
+          schema:
+            type: string
+            enum: [missing_person, checkin, help_request, help_offer, damaged_building]
+        - name: since
+          in: query
+          required: false
+          description: "Cursor de la página anterior (`next_cursor`): `created_at|id` (también acepta un timestamp ISO pelón). Trae filas posteriores."
+          schema: { type: string }
+        - name: limit
+          in: query
+          required: false
+          description: Máximo de filas a devolver. Default 100, máx 500. Valores inválidos caen al default.
+          schema: { type: integer, default: 100, minimum: 1, maximum: 500 }
+        - name: city
+          in: query
+          required: false
+          description: Filtro parcial por ciudad (case-insensitive, substring).
+          schema: { type: string }
+      responses:
+        "200":
+          description: Página de reportes + cursor para la siguiente.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReportsResponse"
+        "400":
+          description: Parámetro 'type' inválido o ausente.
+          content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+        "429":
+          description: Rate limit (best-effort por IP).
+          headers:
+            Retry-After:
+              schema: { type: integer }
+              description: Segundos a esperar antes de reintentar.
+          content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+        "503":
+          description: Falla de servicio/DB — reintenta.
+          content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+
 components:
   securitySchemes:
     ApiKeyAuth:
@@ -116,49 +193,100 @@ components:
       type: object
       properties:
         error: { type: string }
+    # El reporte es una UNIÓN DISCRIMINADA por `type`: cada tipo tiene sus
+    # propios campos requeridos y enums. Mandá el objeto que corresponde a tu
+    # `type`. `source` se ignora si se manda (se estampa desde la key).
     Report:
+      oneOf:
+        - $ref: "#/components/schemas/MissingPersonReport"
+        - $ref: "#/components/schemas/CheckinReport"
+        - $ref: "#/components/schemas/HelpRequestReport"
+        - $ref: "#/components/schemas/HelpOfferReport"
+        - $ref: "#/components/schemas/DamagedBuildingReport"
+      discriminator:
+        propertyName: type
+        mapping:
+          missing_person: "#/components/schemas/MissingPersonReport"
+          checkin: "#/components/schemas/CheckinReport"
+          help_request: "#/components/schemas/HelpRequestReport"
+          help_offer: "#/components/schemas/HelpOfferReport"
+          damaged_building: "#/components/schemas/DamagedBuildingReport"
+
+    # Campos comunes a todo reporte.
+    CommonReportFields:
       type: object
-      required: [type, external_id]
-      description: |
-        Forma canónica (mismas columnas de las tablas). Los campos aplicables
-        dependen de `type`. `source` se ignora si se manda.
+      required: [external_id]
       properties:
-        type:
-          type: string
-          enum: [missing_person, checkin, help_request, help_offer, damaged_building]
-        external_id:
-          type: string
-          maxLength: 200
-          description: Tu id estable. Requerido (idempotencia).
-        source_url: { type: string, maxLength: 500, description: Link de vuelta a tu registro. }
-        name: { type: string, maxLength: 80, description: "Personas (missing_person / checkin)." }
-        message: { type: string, maxLength: 500, description: "missing_person / checkin — nota o última info." }
-        status:
-          type: string
-          description: "checkin → SAFE|NEEDS_HELP|LOOKING_FOR_SOMEONE (default SAFE). help_request → OPEN|IN_PROGRESS|RESOLVED (default OPEN). En missing_person se ignora (siempre LOOKING_FOR_SOMEONE)."
-        category:
-          type: string
-          description: "help_request → medical|food|water|shelter|transportation|electricity|rescue|tools. help_offer → transportation|food|shelter|medical|supplies|translation. Inválido para el tipo → fila rechazada."
-        urgency:
-          type: string
-          enum: [LOW, MEDIUM, HIGH, CRITICAL]
-          description: "help_request (default MEDIUM)."
-        severity:
-          type: string
-          enum: [CRACKS, PARTIAL, COLLAPSE_RISK, COLLAPSED]
-          description: "damaged_building (default PARTIAL)."
-        description: { type: string, maxLength: 800 }
+        external_id: { type: string, maxLength: 200, description: "Tu id estable. Requerido (idempotencia por (source, external_id))." }
+        source_url: { type: string, maxLength: 500, description: "Link de vuelta a tu registro." }
         city: { type: string, maxLength: 80 }
-        place_name: { type: string, maxLength: 120, description: "damaged_building lo usa; si falta, cae a `name`." }
-        latitude: { type: number, description: "Descartada si cae fuera de Venezuela." }
+        latitude: { type: number, description: "Se descarta si cae fuera de Venezuela." }
         longitude: { type: number }
-        photo_url: { type: string, maxLength: 500 }
-        availability: { type: string, maxLength: 200, description: "help_offer." }
-        available: { type: boolean, default: true, description: "help_offer — false/\"false\"/0/\"no\" = no disponible." }
-        contact:
-          type: string
-          maxLength: 30
-          description: PRIVADO — se guarda, nunca se devuelve por la lectura pública.
+        contact: { type: string, maxLength: 30, description: "PRIVADO — se guarda, nunca se devuelve por la lectura pública." }
+
+    MissingPersonReport:
+      allOf:
+        - $ref: "#/components/schemas/CommonReportFields"
+        - type: object
+          required: [type, name]
+          properties:
+            type: { type: string, const: missing_person }
+            name: { type: string, maxLength: 80 }
+            message: { type: string, maxLength: 500, description: "Última información / nota." }
+            place_name: { type: string, maxLength: 120 }
+            photo_url: { type: string, maxLength: 500 }
+          description: "Se guarda siempre con status LOOKING_FOR_SOMEONE (no se envía status)."
+
+    CheckinReport:
+      allOf:
+        - $ref: "#/components/schemas/CommonReportFields"
+        - type: object
+          required: [type, name]
+          properties:
+            type: { type: string, const: checkin }
+            name: { type: string, maxLength: 80 }
+            status: { type: string, enum: [SAFE, NEEDS_HELP, LOOKING_FOR_SOMEONE], default: SAFE, description: "Inválido → SAFE." }
+            message: { type: string, maxLength: 500 }
+            place_name: { type: string, maxLength: 120 }
+            photo_url: { type: string, maxLength: 500 }
+
+    HelpRequestReport:
+      allOf:
+        - $ref: "#/components/schemas/CommonReportFields"
+        - type: object
+          required: [type, category, description]
+          properties:
+            type: { type: string, const: help_request }
+            category: { type: string, enum: [medical, food, water, shelter, transportation, electricity, rescue, tools], description: "Inválida → fila rechazada." }
+            description: { type: string, maxLength: 800 }
+            urgency: { type: string, enum: [LOW, MEDIUM, HIGH, CRITICAL], default: MEDIUM, description: "Inválida → MEDIUM." }
+            status: { type: string, enum: [OPEN, IN_PROGRESS, RESOLVED], default: OPEN, description: "Inválido → OPEN." }
+            place_name: { type: string, maxLength: 120 }
+
+    HelpOfferReport:
+      allOf:
+        - $ref: "#/components/schemas/CommonReportFields"
+        - type: object
+          required: [type, category]
+          properties:
+            type: { type: string, const: help_offer }
+            category: { type: string, enum: [transportation, food, shelter, medical, supplies, translation], description: "Inválida → fila rechazada." }
+            description: { type: string, maxLength: 800 }
+            availability: { type: string, maxLength: 200 }
+            available: { type: boolean, default: true, description: "false / \"false\" / 0 / \"no\" = no disponible." }
+
+    DamagedBuildingReport:
+      allOf:
+        - $ref: "#/components/schemas/CommonReportFields"
+        - type: object
+          required: [type, place_name]
+          properties:
+            type: { type: string, const: damaged_building }
+            place_name: { type: string, maxLength: 120, description: "Si falta, se usa `name`." }
+            name: { type: string, maxLength: 120, description: "Alternativa a place_name." }
+            description: { type: string, maxLength: 800 }
+            severity: { type: string, enum: [CRACKS, PARTIAL, COLLAPSE_RISK, COLLAPSED], default: PARTIAL, description: "Inválida → PARTIAL." }
+            photo_url: { type: string, maxLength: 500 }
     IngestResponse:
       type: object
       required: [accepted, rejected, errored, results]
@@ -175,3 +303,97 @@ components:
               external_id: { type: [string, "null"] }
               status: { type: string, enum: [upserted, rejected, error] }
               error: { type: string, description: "Presente solo en rejected/error." }
+
+    # ── Lectura (GET /api/v1/reports) ──────────────────────────────────────
+    # Forma pública por vista: SIN PII (sin phone_private/contact). Los `reports`
+    # son del schema que corresponde al `type` consultado. Todos exponen `id`,
+    # `created_at` y la atribución (`source`/`source_url`).
+    ReportsResponse:
+      type: object
+      required: [reports, next_cursor]
+      properties:
+        reports:
+          type: array
+          description: "Filas de la vista del `type` consultado."
+          items:
+            oneOf:
+              - $ref: "#/components/schemas/CheckinPublic"
+              - $ref: "#/components/schemas/HelpRequestPublic"
+              - $ref: "#/components/schemas/HelpOfferPublic"
+              - $ref: "#/components/schemas/DamagedBuildingPublic"
+        next_cursor:
+          type: [string, "null"]
+          description: "`created_at|id` del último item; pasalo como `since` para la siguiente página. `null` cuando no hay más."
+
+    CheckinPublic:
+      type: object
+      description: "public_checkins. type=missing_person → status=LOOKING_FOR_SOMEONE; type=checkin → status in (SAFE, NEEDS_HELP)."
+      properties:
+        id: { type: string }
+        name: { type: [string, "null"] }
+        status: { type: string, enum: [SAFE, NEEDS_HELP, LOOKING_FOR_SOMEONE] }
+        city: { type: [string, "null"] }
+        latitude: { type: [number, "null"] }
+        longitude: { type: [number, "null"] }
+        message: { type: [string, "null"] }
+        photo_url: { type: [string, "null"] }
+        created_at: { type: string }
+        found_at: { type: [string, "null"] }
+        place_name: { type: [string, "null"] }
+        source: { type: [string, "null"] }
+        source_url: { type: [string, "null"] }
+
+    HelpRequestPublic:
+      type: object
+      description: "public_help_requests."
+      properties:
+        id: { type: string }
+        category: { type: [string, "null"] }
+        description: { type: [string, "null"] }
+        urgency: { type: [string, "null"], enum: [LOW, MEDIUM, HIGH, CRITICAL, null] }
+        city: { type: [string, "null"] }
+        latitude: { type: [number, "null"] }
+        longitude: { type: [number, "null"] }
+        status: { type: [string, "null"], enum: [OPEN, IN_PROGRESS, RESOLVED, null] }
+        created_at: { type: string }
+        place_name: { type: [string, "null"] }
+        items: { type: [array, "null"], items: { type: string } }
+        source: { type: [string, "null"] }
+        source_url: { type: [string, "null"] }
+
+    HelpOfferPublic:
+      type: object
+      description: "public_help_offers."
+      properties:
+        id: { type: string }
+        category: { type: [string, "null"] }
+        description: { type: [string, "null"] }
+        city: { type: [string, "null"] }
+        latitude: { type: [number, "null"] }
+        longitude: { type: [number, "null"] }
+        availability: { type: [string, "null"] }
+        available: { type: [boolean, "null"] }
+        created_at: { type: string }
+        source: { type: [string, "null"] }
+        source_url: { type: [string, "null"] }
+
+    DamagedBuildingPublic:
+      type: object
+      description: "public_damaged_reports."
+      properties:
+        id: { type: string }
+        place_name: { type: [string, "null"] }
+        description: { type: [string, "null"] }
+        severity: { type: [string, "null"], enum: [CRACKS, PARTIAL, COLLAPSE_RISK, COLLAPSED, null] }
+        city: { type: [string, "null"] }
+        latitude: { type: [number, "null"] }
+        longitude: { type: [number, "null"] }
+        photo_url: { type: [string, "null"] }
+        status: { type: [string, "null"] }
+        created_at: { type: string }
+        verified_at: { type: [string, "null"] }
+        verified_by: { type: [string, "null"] }
+        source: { type: [string, "null"] }
+        source_url: { type: [string, "null"] }
+        risk_level: { type: [string, "null"], enum: [ROJO, AMARILLO, NINGUNA, null] }
+        risk_priority: { type: [boolean, "null"] }
