@@ -1,7 +1,7 @@
 ---
 title: "feat: Ingesta autenticada para hub central (reuso máximo de la estructura actual)"
 type: feat
-status: active
+status: completed
 created: 2026-06-26
 depth: standard
 target_repo: venezuela-ayuda-repo
