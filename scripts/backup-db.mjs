@@ -21,7 +21,8 @@ const H = { apikey: KEY, Authorization: `Bearer ${KEY}` };
 
 const TABLES = [
   "checkins", "help_requests", "help_offers", "damaged_reports",
-  "sightings", "request_responses", "applied_migrations",
+  "sightings", "request_responses", "collection_centers",
+  "admin_emails", "applied_migrations",
 ];
 
 const stamp = new Date().toISOString().replace(/[:.]/g, "-");

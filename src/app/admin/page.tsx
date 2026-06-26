@@ -3,10 +3,12 @@ import Header from "@/components/Header";
 import AdminLogin from "@/components/admin/AdminLogin";
 import DamagedAdminRow from "@/components/admin/DamagedAdminRow";
 import ModerationRow from "@/components/admin/ModerationRow";
+import CenterAdminRow from "@/components/admin/CenterAdminRow";
 import {
   getAdminEmail,
   listDamagedReportsAdmin,
   listModerationItems,
+  listCollectionCentersAdmin,
 } from "@/lib/admin";
 import { adminSignOut } from "@/app/admin/actions";
 
@@ -26,10 +28,12 @@ export default async function AdminPage() {
     );
   }
 
-  const [damaged, mod] = await Promise.all([
+  const [damaged, mod, centers] = await Promise.all([
     listDamagedReportsAdmin(),
     listModerationItems(),
+    listCollectionCentersAdmin(),
   ]);
+  const pendingCenters = centers.filter((c) => !c.verified).length;
 
   return (
     <>
@@ -65,6 +69,26 @@ export default async function AdminPage() {
             </form>
           </div>
         </div>
+
+        <section className="mt-8">
+          <h2 className="flex items-center gap-2 text-base font-semibold text-[#14212e]">
+            Centros de acopio
+            {pendingCenters > 0 && (
+              <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-bold text-amber-700">
+                {pendingCenters} pendiente{pendingCenters === 1 ? "" : "s"}
+              </span>
+            )}
+          </h2>
+          {centers.length === 0 ? (
+            <p className="mt-3 text-sm text-[#8190a0]">No hay centros de acopio.</p>
+          ) : (
+            <div className="mt-3 space-y-3">
+              {centers.map((c) => (
+                <CenterAdminRow item={c} key={c.id} />
+              ))}
+            </div>
+          )}
+        </section>
 
         <section className="mt-8">
           <h2 className="text-base font-semibold text-[#14212e]">

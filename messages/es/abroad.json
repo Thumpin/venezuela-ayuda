@@ -9,5 +9,7 @@
   "searchPlaceholder": "Buscar ciudad o lugar…",
   "noResults": "No encontramos lugares para tu búsqueda.",
   "placeCount": "{count, plural, one {# lugar} other {# lugares}}",
-  "website": "🌐 Sitio web ↗"
+  "website": "🌐 Sitio web ↗",
+  "postularPrompt": "¿Organizas un centro de acopio que no aparece aquí?",
+  "postularCta": "Postula un centro de acopio"
 }

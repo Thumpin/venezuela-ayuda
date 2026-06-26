@@ -542,3 +542,66 @@ export async function fetchRequestResponses(
     .order("created_at", { ascending: false });
   return { ok: true, responses: (data ?? []) as RequestResponse[] };
 }
+
+// Postular un centro de acopio (público) → entra sin verificar (oculto hasta que
+// un admin lo apruebe). El contacto de un centro SÍ es público (es una organización).
+export async function submitCollectionCenter(
+  _prev: ActionState,
+  form: FormData
+): Promise<ActionState> {
+  if (!isSupabaseConfigured()) return notConfigured();
+  if (isBot(form)) return { ok: true };
+
+  const limited = rateLimit(await clientKey("center"), { limit: 5, windowSec: 60 });
+  if (!limited.ok)
+    return { ok: false, error: `Demasiados envíos. Espera ${limited.retryAfterSec}s.` };
+
+  const name = cleanOptional(form.get("name"), LIMITS.name);
+  const country = cleanOptional(form.get("country"), LIMITS.city);
+  const fieldErrors: Record<string, string> = {};
+  if (!name) fieldErrors.name = "Indica el nombre del centro.";
+  if (!country) fieldErrors.country = "Indica el país.";
+  if (Object.keys(fieldErrors).length) return { ok: false, fieldErrors };
+
+  const coords = parseLatLng(form.get("latitude"), form.get("longitude"));
+  const ship = String(form.get("can_ship_to_venezuela") || "");
+  const canShip = ship === "si" ? true : ship === "no" ? false : null;
+  const needsVolunteers = form.get("needs_volunteers") === "si";
+  const volRaw = parseInt(String(form.get("volunteers_count") || ""), 10);
+  const volunteersCount =
+    Number.isFinite(volRaw) && volRaw >= 0 ? Math.min(volRaw, 100000) : null;
+  const needs = ["centro-de-acopio", ...(needsVolunteers ? ["voluntarios"] : [])];
+
+  try {
+    const supabase = getServerSupabase();
+    const { error } = await supabase.from("collection_centers").insert({
+      name,
+      country,
+      state: cleanOptional(form.get("state"), LIMITS.city),
+      city: cleanOptional(form.get("city"), LIMITS.city),
+      address: cleanOptional(form.get("address"), 200),
+      latitude: coords?.lat ?? null,
+      longitude: coords?.lng ?? null,
+      resources: cleanOptional(form.get("resources"), LIMITS.description),
+      organizers: cleanOptional(form.get("organizers"), LIMITS.name),
+      contact: cleanOptional(form.get("contact"), 120),
+      website: cleanOptional(form.get("website"), 500),
+      can_ship_to_venezuela: canShip,
+      volunteers_count: volunteersCount,
+      needs_volunteers: needsVolunteers,
+      needs,
+      verified: false,
+      hidden: false,
+      manage_token: crypto.randomUUID(),
+      source: "user",
+    });
+    if (error) throw error;
+  } catch {
+    return {
+      ok: false,
+      error: "No pudimos enviar el centro. Revisa tu conexión e intenta de nuevo.",
+    };
+  }
+
+  return { ok: true };
+}

@@ -6,63 +6,76 @@ import type {
   PublicHelpRequest,
   PublicHelpOffer,
   PublicDamagedReport,
+  PublicCollectionCenter,
   HospitalRegistryMatch,
   MissingPersonMatch,
   MapMarker,
   LatLng,
 } from "@/lib/types";
 import { HELP_CATEGORIES, OFFER_CATEGORIES, DAMAGE_SEVERITY } from "@/lib/constants";
+import type { HelpCity, HelpNeed } from "@/lib/helpAbroad";
 import { formatItems } from "@/lib/validation";
 import { getDamagedBuildingMarkers } from "@/lib/damagedBuildings";
 import { getKoboDamagedMarkers } from "@/lib/koboBuildings";
 import { parseCsv, norm } from "@/lib/csv";
 
-// Curated relief / collection centers ("centros de acopio"). Static, always
-// shown on the map. Coordinates are approximate (the authoritative info is the
-// address in the popup + the "cómo llegar" link). Source: Operación Todos con VZLA.
-const CENTER_ACCEPTS =
-  "Reciben: agua potable, alimentos no perecederos, insumos médicos, ropa y abrigos.";
+const VENEZUELA = "Venezuela";
 
-const RELIEF_CENTERS: Array<{ state: string; address: string; lat: number; lng: number }> = [
-  {
-    state: "Miranda",
-    address: "4ta avenida de Altamira, entre 9na y 10ma transversal; quinta El Bejucal.",
-    lat: 10.4972,
-    lng: -66.8521,
-  },
-  {
-    state: "Aragua",
-    address: "Av. 19 de Abril, C.C. La Capilla, piso 1, local 21. Maracay.",
-    lat: 10.2538,
-    lng: -67.6038,
-  },
-  {
-    state: "Carabobo",
-    address: "Av. Monseñor Adams, El Viñedo. Edificio Talislandia, mezzanina. Valencia.",
-    lat: 10.1878,
-    lng: -68.0009,
-  },
-  {
-    state: "Barinas",
-    address:
-      "Av. Marqués del Pumar, diagonal al Hotel Comercio, Casa Azul. Barinas. 8:00am–6:00pm · Contacto 0412 569.33.30",
-    lat: 8.6235,
-    lng: -70.2078,
-  },
-];
+// Collection centers ("centros de acopio") — verified rows from the DB. Venezuela
+// centers go on the map; the rest are listed on /ayudar-fuera. Reads the public
+// view (contact/website are public org info; manage_token is never exposed).
+export async function getCollectionCenters(
+  country?: string,
+): Promise<PublicCollectionCenter[]> {
+  if (!isSupabaseConfigured()) return [];
+  const supabase = getServerSupabase();
+  let query = supabase
+    .from("public_collection_centers")
+    .select("*")
+    .order("country", { ascending: true })
+    .order("city", { ascending: true });
+  if (country) query = query.eq("country", country);
+  const { data } = await query;
+  return (data ?? []) as PublicCollectionCenter[];
+}
 
-function reliefCenterMarkers(): MapMarker[] {
-  return RELIEF_CENTERS.map((c, i) => ({
-    id: `center_${i}`,
-    kind: "center",
-    lat: c.lat,
-    lng: c.lng,
-    title: `Centro de acopio · ${c.state}`,
-    subtitle: `${c.address} ${CENTER_ACCEPTS}`,
-    href: `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
-      `${c.address} ${c.state} Venezuela`,
-    )}`,
-  }));
+// Venezuela centers as map markers (kind "center").
+async function reliefCenterMarkers(): Promise<MapMarker[]> {
+  const centers = await getCollectionCenters(VENEZUELA);
+  return centers
+    .filter((c) => c.latitude != null && c.longitude != null)
+    .map((c) => ({
+      id: `center_${c.id}`,
+      kind: "center" as const,
+      lat: c.latitude!,
+      lng: c.longitude!,
+      title: c.name,
+      subtitle: [c.address, c.resources].filter(Boolean).join(" · ") || undefined,
+      href: `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
+        `${c.address ?? c.name} ${c.state ?? ""} Venezuela`,
+      )}`,
+    }));
+}
+
+// International centers grouped by country+city, in the shape /ayudar-fuera expects.
+export async function getAbroadCenters(): Promise<HelpCity[]> {
+  const centers = (await getCollectionCenters()).filter((c) => c.country !== VENEZUELA);
+  const byCity = new Map<string, HelpCity>();
+  for (const c of centers) {
+    const key = `${c.country}|${c.city ?? ""}`;
+    if (!byCity.has(key)) {
+      byCity.set(key, { city: c.city ?? c.country, country: c.country, places: [] });
+    }
+    byCity.get(key)!.places.push({
+      name: c.name,
+      description: c.description ?? undefined,
+      address: c.address ?? "",
+      website: c.website ?? undefined,
+      phone: c.contact ?? undefined,
+      needs: (c.needs as HelpNeed[]) ?? [],
+    });
+  }
+  return [...byCity.values()];
 }
 
 // All reads go through the public_* views, which never include phone/contact.
@@ -439,7 +452,10 @@ export async function getDamagedReportMarkers(): Promise<MapMarker[]> {
 async function getMapMarkersUncached(): Promise<MapMarker[]> {
   // Curated relief centers + damaged-building reports are always shown, even if
   // the DB is unavailable. These run in parallel and fail soft.
-  const externalMarkers = [reliefCenterMarkers(), await getDamagedBuildingMarkers()].flat();
+  const externalMarkers = [
+    await reliefCenterMarkers(),
+    await getDamagedBuildingMarkers(),
+  ].flat();
   if (!isSupabaseConfigured()) {
     const markers = [...externalMarkers];
     await mergeKoboDamaged(markers);

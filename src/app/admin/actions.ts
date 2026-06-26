@@ -137,6 +137,103 @@ export async function deleteReport(table: string, id: string): Promise<Result> {
   return { ok: true };
 }
 
+// --- Collection centers (centros de acopio) ---------------------------------
+export async function verifyCenter(id: string, verified: boolean): Promise<Result> {
+  try {
+    await requireAdmin();
+  } catch {
+    return { ok: false, error: "No autorizado." };
+  }
+  if (!UUID_RE.test(id)) return { ok: false, error: "Id inválido." };
+  const svc = getServerSupabase();
+  const { error } = await svc.from("collection_centers").update({ verified }).eq("id", id);
+  if (error) return { ok: false, error: "No se pudo actualizar." };
+  revalidatePath("/mapa");
+  revalidatePath("/ayudar-fuera");
+  revalidatePath("/admin");
+  return { ok: true };
+}
+
+export async function setCenterHidden(id: string, hidden: boolean): Promise<Result> {
+  try {
+    await requireAdmin();
+  } catch {
+    return { ok: false, error: "No autorizado." };
+  }
+  if (!UUID_RE.test(id)) return { ok: false, error: "Id inválido." };
+  const svc = getServerSupabase();
+  const { error } = await svc.from("collection_centers").update({ hidden }).eq("id", id);
+  if (error) return { ok: false, error: "No se pudo actualizar." };
+  revalidatePath("/mapa");
+  revalidatePath("/ayudar-fuera");
+  revalidatePath("/admin");
+  return { ok: true };
+}
+
+export async function deleteCenter(id: string): Promise<Result> {
+  try {
+    await requireAdmin();
+  } catch {
+    return { ok: false, error: "No autorizado." };
+  }
+  if (!UUID_RE.test(id)) return { ok: false, error: "Id inválido." };
+  const svc = getServerSupabase();
+  const { error } = await svc.from("collection_centers").delete().eq("id", id);
+  if (error) return { ok: false, error: "No se pudo eliminar." };
+  revalidatePath("/mapa");
+  revalidatePath("/ayudar-fuera");
+  revalidatePath("/admin");
+  return { ok: true };
+}
+
+export async function updateCenter(
+  id: string,
+  fields: Record<string, unknown>,
+): Promise<Result> {
+  try {
+    await requireAdmin();
+  } catch {
+    return { ok: false, error: "No autorizado." };
+  }
+  if (!UUID_RE.test(id)) return { ok: false, error: "Id inválido." };
+
+  const LIMITS_BY_KEY: Record<string, number> = {
+    name: 80, country: 80, state: 80, city: 80, address: 200,
+    resources: 800, organizers: 80, contact: 120, website: 500,
+  };
+  const update: Record<string, unknown> = {};
+  for (const [k, max] of Object.entries(LIMITS_BY_KEY)) {
+    if (!(k in fields)) continue;
+    const v = String(fields[k] ?? "").replace(/\s+/g, " ").trim().slice(0, max);
+    if ((k === "name" || k === "country") && !v)
+      return { ok: false, error: "El nombre y el país no pueden quedar vacíos." };
+    update[k] = v || null;
+  }
+  if ("can_ship_to_venezuela" in fields) {
+    const v = fields.can_ship_to_venezuela;
+    update.can_ship_to_venezuela = v === null || v === undefined ? null : Boolean(v);
+  }
+  if ("volunteers_count" in fields) {
+    const n = Number(fields.volunteers_count);
+    update.volunteers_count =
+      Number.isFinite(n) && n >= 0 ? Math.min(Math.floor(n), 100000) : null;
+  }
+  if ("needs_volunteers" in fields) {
+    const needsVol = Boolean(fields.needs_volunteers);
+    update.needs_volunteers = needsVol;
+    update.needs = ["centro-de-acopio", ...(needsVol ? ["voluntarios"] : [])];
+  }
+  if (Object.keys(update).length === 0) return { ok: true };
+
+  const svc = getServerSupabase();
+  const { error } = await svc.from("collection_centers").update(update).eq("id", id);
+  if (error) return { ok: false, error: "No se pudo guardar." };
+  revalidatePath("/mapa");
+  revalidatePath("/ayudar-fuera");
+  revalidatePath("/admin");
+  return { ok: true };
+}
+
 // --- Manage admins -----------------------------------------------------------
 export async function addAdmin(email: string): Promise<Result> {
   let me: string;

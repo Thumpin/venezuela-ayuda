@@ -11,6 +11,7 @@ export const metadata: Metadata = {
 
 export default async function Page() {
   const t = await getTranslations("create");
+  const tAbroad = await getTranslations("abroad");
   return (
     <PageShell
       emoji="🙌"
@@ -24,6 +25,11 @@ export default async function Page() {
         {t("canHelp.seeRequests")}
       </Link>
       <HelpOfferForm />
+      <p className="mt-6 text-sm text-[#5b6b7b]">
+        <Link href="/postular-centro" className="font-semibold text-[#2563a8]">
+          📦 {tAbroad("postularCta")} →
+        </Link>
+      </p>
     </PageShell>
   );
 }

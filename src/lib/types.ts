@@ -127,6 +127,29 @@ export interface MissingPersonMatch {
   sourceUrl: string;
 }
 
+// Mirrors public_collection_centers. A center's contact/website ARE public (org
+// info); manage_token / verified / hidden are not exposed.
+export interface PublicCollectionCenter {
+  id: string;
+  name: string;
+  country: string;
+  state: string | null;
+  city: string | null;
+  address: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  description: string | null;
+  resources: string | null;
+  organizers: string | null;
+  contact: string | null;
+  website: string | null;
+  can_ship_to_venezuela: boolean | null;
+  volunteers_count: number | null;
+  needs_volunteers: boolean | null;
+  needs: string[];
+  created_at: string;
+}
+
 export type LatLng = { lat: number; lng: number };
 
 // Unified shape consumed by the map. Kinds: places that need help, missing

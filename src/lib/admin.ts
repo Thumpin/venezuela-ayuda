@@ -114,3 +114,38 @@ export async function listPartners(): Promise<PartnerRow[]> {
     .order("created_at", { ascending: true });
   return (data ?? []) as PartnerRow[];
 }
+
+export interface AdminCenterRow {
+  id: string;
+  name: string;
+  country: string;
+  state: string | null;
+  city: string | null;
+  address: string | null;
+  resources: string | null;
+  organizers: string | null;
+  contact: string | null;
+  website: string | null;
+  can_ship_to_venezuela: boolean | null;
+  volunteers_count: number | null;
+  needs_volunteers: boolean | null;
+  needs: string[];
+  verified: boolean;
+  hidden: boolean;
+  source: string | null;
+  created_at: string;
+}
+
+// All collection centers for moderation, PENDING (unverified) first.
+export async function listCollectionCentersAdmin(): Promise<AdminCenterRow[]> {
+  const svc = getServerSupabase();
+  const { data } = await svc
+    .from("collection_centers")
+    .select(
+      "id,name,country,state,city,address,resources,organizers,contact,website,can_ship_to_venezuela,volunteers_count,needs_volunteers,needs,verified,hidden,source,created_at",
+    )
+    .order("verified", { ascending: true })
+    .order("created_at", { ascending: false })
+    .limit(300);
+  return (data ?? []) as AdminCenterRow[];
+}
