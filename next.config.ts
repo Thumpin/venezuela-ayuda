@@ -1,6 +1,6 @@
 import type { NextConfig } from "next";
 import createNextIntlPlugin from "next-intl/plugin";
-import { SECURITY_HEADERS, API_SECURITY_HEADERS } from "./src/lib/apiPolicy.mjs";
+import { SECURITY_HEADERS, API_SECURITY_HEADERS, API_CORS_HEADERS } from "./src/lib/apiPolicy.mjs";
 
 const withNextIntl = createNextIntlPlugin("./src/i18n/request.ts");
 
@@ -22,6 +22,9 @@ const nextConfig: NextConfig = {
     return [
       { source: "/:path*", headers: SECURITY_HEADERS },
       { source: "/api/:path*", headers: API_SECURITY_HEADERS },
+      // CORS del API público v1. El split lectura/escritura lo enforza el browser
+      // (preflight), no nuestro código — ver API_CORS_HEADERS en apiPolicy.mjs.
+      { source: "/api/v1/:path*", headers: API_CORS_HEADERS },
     ];
   },
 };

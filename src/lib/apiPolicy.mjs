@@ -53,29 +53,6 @@ export function safeDbError(rawErr) {
   return DB_WRITE_FAILED_MESSAGE;
 }
 
-// ── CORS por tipo de endpoint ────────────────────────────────────────────────
-// LECTURA (GET, abierta, dato público sin PII ni credenciales): `*` es correcto y
-// estándar — cualquier sitio socio puede consumirla desde el browser.
-//
-// ESCRITURA (POST/PATCH, key-gated, server-to-server): SIN CORS a propósito. Una
-// API key no debe vivir en un browser; al no emitir Access-Control-Allow-* el
-// preflight cross-origin del browser falla → el patrón inseguro queda bloqueado.
-export function corsReadHeaders() {
-  return { "Access-Control-Allow-Origin": "*" };
-}
-
-// Preflight (OPTIONS) de las rutas de lectura. Sólo anuncia GET/OPTIONS: aunque
-// /reports y /reports/{id} también exponen POST/PATCH, esos NO se anuncian aquí,
-// así un browser nunca obtiene permiso de preflight para escribir cross-origin.
-export function readPreflightHeaders() {
-  return {
-    "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Methods": "GET, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type",
-    "Access-Control-Max-Age": "86400",
-  };
-}
-
 // ── Security headers (cableados en next.config `headers()`) ───────────────────
 // Sólo lo que Vercel NO pone solo (ver investigación de plataforma):
 //   - HTTPS redirect (308) y HSTS base: los pone Vercel. Reforzamos HSTS con
@@ -94,4 +71,22 @@ export const SECURITY_HEADERS = [
 // apagan todas (no se aplica al sitio para no romper el geolocation del picker).
 export const API_SECURITY_HEADERS = [
   { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=(), browsing-topics=()" },
+];
+
+// ── CORS del API público (cableado en next.config `headers()` → /api/v1/*) ────
+// Declarativo, en la capa de plataforma. El split lectura/escritura NO lo hacemos
+// en código: lo hace el browser siguiendo el algoritmo de CORS.
+//   · Allow-Origin `*`: la LECTURA (GET, dato público sin credenciales) es un
+//     "simple request" → ni preflight → cualquier sitio socio la lee.
+//   · Allow-Methods sólo GET/OPTIONS + Allow-Headers sólo Content-Type (NUNCA
+//     x-api-key): una ESCRITURA cross-origin manda la key en x-api-key → dispara
+//     preflight → el browser ve que ni el método (POST/PATCH) ni el header
+//     (x-api-key) están permitidos → BLOQUEA antes de mandar la request.
+// El candado real del write es la API key (server-to-server); esto es la higiene
+// que evita que una key se use desde un browser. Vercel pone HTTPS/HSTS/DDoS; esto
+// es lo único de CORS que el API necesita declarar.
+export const API_CORS_HEADERS = [
+  { key: "Access-Control-Allow-Origin", value: "*" },
+  { key: "Access-Control-Allow-Methods", value: "GET, OPTIONS" },
+  { key: "Access-Control-Allow-Headers", value: "Content-Type" },
 ];

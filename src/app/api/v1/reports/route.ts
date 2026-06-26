@@ -15,8 +15,6 @@ import {
   resolveRequestId,
   errorBody,
   safeDbError,
-  corsReadHeaders,
-  readPreflightHeaders,
   SERVICE_UNAVAILABLE_MESSAGE,
 } from "@/lib/apiPolicy.mjs";
 
@@ -25,12 +23,13 @@ import {
 // GET (abajo): LECTURA de la colección. ABIERTA (sin API key) para maximizar
 // difusión; rate-limit best-effort por IP. Lee solo de las vistas `public_*`
 // (sin PII — phone_private/contact nunca se exponen), nunca de las tablas crudas.
-// CORS `*` (dato público, sin credenciales) → consumible desde browsers socios.
 //
 // POST (abajo): CREAR reportes (batch). Cerrado por API key (scope `write`);
 // escribe con el service key vía RPC `ingest_reports` (upsert idempotente +
-// audit CREATE, atómico por tabla). El `source` se estampa desde la key. SIN
-// CORS: una key no debe vivir en un browser.
+// audit CREATE, atómico por tabla). El `source` se estampa desde la key.
+//
+// CORS (lectura abierta `*`, escritura cerrada) se declara en next.config
+// (API_CORS_HEADERS) y lo enforza el browser vía preflight — no en este código.
 //
 // El `type` es el MISMO conjunto cerrado en lectura y escritura (missing_person,
 // checkin, help_request, help_offer, damaged_building). Paginación por cursor
@@ -42,23 +41,13 @@ export const maxDuration = 30;
 const MAX_BATCH = 200;
 const MAX_BODY_BYTES = 512 * 1024; // req.json() bufferea todo el body antes del cap de batch
 
-// Preflight CORS de la colección. Sólo anuncia GET/OPTIONS — el POST (key-gated)
-// NO se anuncia, así un browser nunca obtiene permiso para escribir cross-origin.
-export async function OPTIONS() {
-  return new NextResponse(null, { status: 204, headers: readPreflightHeaders() });
-}
-
 export async function GET(req: Request) {
-  // CORS abierto en TODAS las respuestas (incl. errores) para que un browser
-  // cross-origin pueda leerlas. Es un valor constante → seguro de cachear.
-  const cors = corsReadHeaders();
-
   // Rate-limit best-effort por IP (lectura abierta; el límite blunt-ea abuso).
   const rl = rateLimit(await clientKey("reports"), { limit: 120, windowSec: 60 });
   if (!rl.ok) {
     return NextResponse.json(
       { error: "Demasiadas solicitudes." },
-      { status: 429, headers: { ...cors, "Retry-After": String(rl.retryAfterSec) } }
+      { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } }
     );
   }
 
@@ -67,7 +56,7 @@ export async function GET(req: Request) {
   if (!resolved.ok) {
     return NextResponse.json(
       { error: "Parámetro 'type' inválido o ausente. Valores: missing_person, checkin, help_request, help_offer, damaged_building." },
-      { status: 400, headers: cors }
+      { status: 400 }
     );
   }
 
@@ -105,7 +94,7 @@ export async function GET(req: Request) {
 
   const { data, error } = await query;
   if (error) {
-    return NextResponse.json({ error: SERVICE_UNAVAILABLE_MESSAGE }, { status: 503, headers: cors });
+    return NextResponse.json({ error: SERVICE_UNAVAILABLE_MESSAGE }, { status: 503 });
   }
 
   // Cache en el Edge de Vercel sólo en el camino feliz (200). Los errores
@@ -113,7 +102,7 @@ export async function GET(req: Request) {
   const reports = data ?? [];
   return NextResponse.json(
     { reports, next_cursor: buildNextCursor(reports, limit) },
-    { headers: { ...cors, "Cache-Control": PUBLIC_CDN_CACHE } }
+    { headers: { "Cache-Control": PUBLIC_CDN_CACHE } }
   );
 }
 

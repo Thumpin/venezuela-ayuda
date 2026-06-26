@@ -1,6 +1,6 @@
 // Concerns HTTP de la superficie pública del API: enforcement de Content-Type,
-// request-id (tracing + anti log-injection), shape de error sin leak, CORS por
-// tipo de endpoint, y los mapas de security headers.
+// request-id (tracing + anti log-injection), shape de error sin leak, y los mapas
+// de headers declarativos (security + CORS) que consume next.config.
 // Corre: node --test scripts/*.test.mjs
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -10,10 +10,9 @@ import {
   errorBody,
   safeDbError,
   DB_WRITE_FAILED_MESSAGE,
-  corsReadHeaders,
-  readPreflightHeaders,
   SECURITY_HEADERS,
   API_SECURITY_HEADERS,
+  API_CORS_HEADERS,
 } from "../src/lib/apiPolicy.mjs";
 
 // ── Content-Type enforcement (POST/PATCH → 415 si no es JSON) ────────────────
@@ -76,19 +75,18 @@ test("safeDbError: NUNCA refleja el mensaje crudo de Postgres", () => {
   assert.equal(safeDbError(null), DB_WRITE_FAILED_MESSAGE);
 });
 
-// ── CORS por tipo de endpoint ────────────────────────────────────────────────
-test("corsReadHeaders: lectura pública → ACAO * (dato público, sin credenciales)", () => {
-  assert.deepEqual(corsReadHeaders(), { "Access-Control-Allow-Origin": "*" });
-});
-
-test("readPreflightHeaders: preflight de lectura sólo permite GET/OPTIONS (nunca writes)", () => {
-  const h = readPreflightHeaders();
-  assert.equal(h["Access-Control-Allow-Origin"], "*");
-  assert.equal(h["Access-Control-Allow-Methods"], "GET, OPTIONS");
-  assert.ok(!h["Access-Control-Allow-Methods"].includes("POST"));
-  assert.ok(!h["Access-Control-Allow-Methods"].includes("PATCH"));
-  assert.ok(h["Access-Control-Allow-Headers"].toLowerCase().includes("content-type"));
-  assert.ok(Number(h["Access-Control-Max-Age"]) > 0);
+// ── CORS declarativo (next.config → /api/v1/*; el browser hace el split) ──────
+test("API_CORS_HEADERS: lectura `*`, y writes bloqueados por el browser (sin POST/PATCH ni x-api-key)", () => {
+  const k = Object.fromEntries(API_CORS_HEADERS.map((h) => [h.key, h.value]));
+  // GET cross-origin (simple request) puede leer.
+  assert.equal(k["Access-Control-Allow-Origin"], "*");
+  // El preflight de un write falla: ni el método ni el header de la key están permitidos.
+  assert.equal(k["Access-Control-Allow-Methods"], "GET, OPTIONS");
+  assert.ok(!k["Access-Control-Allow-Methods"].includes("POST"));
+  assert.ok(!k["Access-Control-Allow-Methods"].includes("PATCH"));
+  const allowHeaders = k["Access-Control-Allow-Headers"].toLowerCase();
+  assert.ok(allowHeaders.includes("content-type"));
+  assert.ok(!allowHeaders.includes("x-api-key")); // una key nunca se permite desde un browser
 });
 
 // ── Security headers (cableados en next.config) ──────────────────────────────

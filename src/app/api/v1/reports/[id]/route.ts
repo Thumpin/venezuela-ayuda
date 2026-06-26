@@ -15,8 +15,6 @@ import {
   requireJsonContentType,
   resolveRequestId,
   errorBody,
-  corsReadHeaders,
-  readPreflightHeaders,
   SERVICE_UNAVAILABLE_MESSAGE,
 } from "@/lib/apiPolicy.mjs";
 
@@ -38,12 +36,6 @@ const MAX_PATCH_BODY_BYTES = 64 * 1024; // un patch es UN objeto; 64KB sobra
 
 type Params = { params: Promise<{ id: string }> };
 
-// Preflight CORS. Sólo GET/OPTIONS (el PATCH key-gated no se anuncia → un browser
-// nunca obtiene permiso para editar cross-origin con la key expuesta).
-export async function OPTIONS() {
-  return new NextResponse(null, { status: 204, headers: readPreflightHeaders() });
-}
-
 // Proyecta una fila CRUDA (con PII) a sus columnas públicas + `type`. Whitelist
 // por VIEW_COLUMNS → phone_private/contact/manage_token nunca salen.
 function projectPublic(table: string, row: Record<string, unknown>): Record<string, unknown> {
@@ -59,17 +51,16 @@ function projectPublic(table: string, row: Record<string, unknown>): Record<stri
 }
 
 export async function GET(req: Request, { params }: Params) {
-  const cors = corsReadHeaders();
   const { id } = await params;
   if (!isUuid(id)) {
-    return NextResponse.json({ error: "id inválido (se espera un uuid)." }, { status: 400, headers: cors });
+    return NextResponse.json({ error: "id inválido (se espera un uuid)." }, { status: 400 });
   }
 
   const rl = rateLimit(await clientKey("reports:item"), { limit: 120, windowSec: 60 });
   if (!rl.ok) {
     return NextResponse.json(
       { error: "Demasiadas solicitudes." },
-      { status: 429, headers: { ...cors, "Retry-After": String(rl.retryAfterSec) } }
+      { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } }
     );
   }
 
@@ -85,22 +76,22 @@ export async function GET(req: Request, { params }: Params) {
   for (let i = 0; i < lookups.length; i++) {
     const out = lookups[i];
     if (out.status === "rejected") {
-      return NextResponse.json({ error: SERVICE_UNAVAILABLE_MESSAGE }, { status: 503, headers: cors });
+      return NextResponse.json({ error: SERVICE_UNAVAILABLE_MESSAGE }, { status: 503 });
     }
     if (out.value.error) {
-      return NextResponse.json({ error: SERVICE_UNAVAILABLE_MESSAGE }, { status: 503, headers: cors });
+      return NextResponse.json({ error: SERVICE_UNAVAILABLE_MESSAGE }, { status: 503 });
     }
     const row = out.value.data as Record<string, unknown> | null;
     if (row) {
       const table = RESOURCES[i].table;
       return NextResponse.json(
         { report: { type: typeForResource(table, row), ...row } },
-        { headers: { ...cors, "Cache-Control": PUBLIC_CDN_CACHE } }
+        { headers: { "Cache-Control": PUBLIC_CDN_CACHE } }
       );
     }
   }
 
-  return NextResponse.json({ error: "Reporte no encontrado." }, { status: 404, headers: cors });
+  return NextResponse.json({ error: "Reporte no encontrado." }, { status: 404 });
 }
 
 export async function PATCH(req: Request, { params }: Params) {
