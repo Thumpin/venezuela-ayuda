@@ -91,3 +91,26 @@ export async function listModerationItems(): Promise<ModerationItem[]> {
     items.push({ table: "help_offers", id: o.id, label: o.category, sub: o.city ?? null, hidden: o.hidden, created_at: o.created_at });
   return items.sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
 }
+
+// --- Colaboradores (API partners) -------------------------------------------
+export interface PartnerRow {
+  id: string;
+  name: string;
+  source: string;
+  key_prefix: string | null;
+  scopes: string[];
+  contact: string | null;
+  active: boolean;
+  created_at: string;
+  revoked_at: string | null;
+}
+
+// Lista de colaboradores para el admin. NUNCA devuelve key_hash ni la key.
+export async function listPartners(): Promise<PartnerRow[]> {
+  const svc = getServerSupabase();
+  const { data } = await svc
+    .from("api_partners")
+    .select("id,name,source,key_prefix,scopes,contact,active,created_at,revoked_at")
+    .order("created_at", { ascending: true });
+  return (data ?? []) as PartnerRow[];
+}
