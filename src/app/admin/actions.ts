@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { getAuthClient } from "@/lib/supabase/auth";
 import { getServerSupabase, isSupabaseConfigured } from "@/lib/supabase/server";
-import { getAdminEmail, isEmailAdmin } from "@/lib/admin";
+import { createNotification, getAdminEmail, isEmailAdmin, markNotificationRead, releaseMyAssignments, reopenMergeCandidate } from "@/lib/admin";
 
 export type AuthState = { error?: string };
 type Result = { ok: boolean; error?: string };
@@ -34,8 +34,6 @@ export async function adminSignIn(_prev: AuthState, form: FormData): Promise<Aut
   redirect("/admin");
 }
 
-// First-time: an allowlisted email sets its own password (created server-side
-// with email pre-confirmed, so there's no email round-trip).
 export async function adminSignUp(_prev: AuthState, form: FormData): Promise<AuthState> {
   if (!isSupabaseConfigured()) return { error: "Servicio no disponible." };
   const email = emailOf(form);
@@ -80,127 +78,140 @@ async function requireAdmin(): Promise<string> {
 
 export async function verifyDamagedReport(id: string, verified: boolean): Promise<Result> {
   let email: string;
-  try {
-    email = await requireAdmin();
-  } catch {
-    return { ok: false, error: "No autorizado." };
-  }
+  try { email = await requireAdmin(); } catch { return { ok: false, error: "No autorizado." }; }
   if (!UUID_RE.test(id)) return { ok: false, error: "Id inválido." };
   const svc = getServerSupabase();
   const { error } = await svc
     .from("damaged_reports")
-    .update({
-      verified_at: verified ? new Date().toISOString() : null,
-      verified_by: verified ? email : null,
-    })
+    .update({ verified_at: verified ? new Date().toISOString() : null, verified_by: verified ? email : null })
     .eq("id", id);
   if (error) return { ok: false, error: "No se pudo actualizar." };
-  revalidatePath("/mapa");
-  revalidatePath(`/edificio/${id}`);
-  revalidatePath("/admin");
+  revalidatePath("/mapa"); revalidatePath(`/edificio/${id}`); revalidatePath("/admin");
   return { ok: true };
 }
 
 export async function setHidden(table: string, id: string, hidden: boolean): Promise<Result> {
-  try {
-    await requireAdmin();
-  } catch {
-    return { ok: false, error: "No autorizado." };
-  }
-  if (!MODERATABLE.has(table) || !UUID_RE.test(id))
-    return { ok: false, error: "Solicitud inválida." };
+  try { await requireAdmin(); } catch { return { ok: false, error: "No autorizado." }; }
+  if (!MODERATABLE.has(table) || !UUID_RE.test(id)) return { ok: false, error: "Solicitud inválida." };
   const svc = getServerSupabase();
   const { error } = await svc.from(table).update({ hidden }).eq("id", id);
   if (error) return { ok: false, error: "No se pudo actualizar." };
-  revalidatePath("/mapa");
-  revalidatePath("/buscar");
-  revalidatePath("/admin");
+  revalidatePath("/mapa"); revalidatePath("/buscar"); revalidatePath("/admin");
   return { ok: true };
 }
 
 export async function deleteReport(table: string, id: string): Promise<Result> {
-  try {
-    await requireAdmin();
-  } catch {
-    return { ok: false, error: "No autorizado." };
-  }
-  if (!MODERATABLE.has(table) || !UUID_RE.test(id))
-    return { ok: false, error: "Solicitud inválida." };
+  try { await requireAdmin(); } catch { return { ok: false, error: "No autorizado." }; }
+  if (!MODERATABLE.has(table) || !UUID_RE.test(id)) return { ok: false, error: "Solicitud inválida." };
   const svc = getServerSupabase();
   const { error } = await svc.from(table).delete().eq("id", id);
   if (error) return { ok: false, error: "No se pudo eliminar." };
-  revalidatePath("/mapa");
-  revalidatePath("/buscar");
-  revalidatePath("/admin");
+  revalidatePath("/mapa"); revalidatePath("/buscar"); revalidatePath("/admin");
   return { ok: true };
 }
 
-// --- Dedup review (merge_candidates) -----------------------------------------
-// Human decision on a duplicate pair. "duplicate" hides the dup checkin (NEVER
-// deletes — a wrong call is recoverable by un-hiding) and marks the candidate
-// MERGED; "not" marks it REJECTED so it won't resurface. Both record who/when.
+// --- Dedup review -----------------------------------------------------------
+
 export async function decideMerge(
   candidateId: string,
-  decision: "duplicate" | "not",
+  decision: "duplicate" | "consolidate" | "skip",
 ): Promise<Result> {
   let email: string;
-  try {
-    email = await requireAdmin();
-  } catch {
-    return { ok: false, error: "No autorizado." };
+  try { email = await requireAdmin(); } catch { return { ok: false, error: "No autorizado." }; }
+  if (!UUID_RE.test(candidateId) && !candidateId.startsWith("mock-"))
+    return { ok: false, error: "Id inválido." };
+
+  if (!isSupabaseConfigured() && process.env.NODE_ENV === "development") {
+    await new Promise((r) => setTimeout(r, 200));
+    return { ok: true };
   }
-  if (!UUID_RE.test(candidateId)) return { ok: false, error: "Id inválido." };
 
   const svc = getServerSupabase();
-  // Load the candidate (we need dup_id when confirming a merge).
   const { data: cand, error: loadErr } = await svc
     .from("merge_candidates")
-    .select("id,dup_id,status")
+    .select("id,keep_id,dup_id,status")
     .eq("id", candidateId)
     .maybeSingle();
   if (loadErr || !cand) return { ok: false, error: "No se encontró el candidato." };
   if (cand.status !== "PENDING") return { ok: false, error: "Ya fue revisado." };
 
-  if (decision === "duplicate") {
-    // Retire the duplicate by hiding it (reversible), keeping the richer row.
+  const hideTarget = decision === "duplicate" ? cand.dup_id
+    : decision === "consolidate" ? cand.keep_id
+    : null;
+
+  if (hideTarget) {
     const { error: hideErr } = await svc
       .from("checkins")
       .update({ hidden: true })
-      .eq("id", cand.dup_id);
-    if (hideErr) return { ok: false, error: "No se pudo ocultar el duplicado." };
+      .eq("id", hideTarget);
+    if (hideErr) return { ok: false, error: "No se pudo ocultar el registro." };
+
+    await createNotification(
+      hideTarget,
+      decision === "duplicate" ? "merged" : "consolidated",
+      "El reporte que hiciste fue revisado y se confirmó que la persona está a salvo.",
+    );
   }
 
+  const statusMap: Record<string, string> = { duplicate: "MERGED", consolidate: "MERGED", skip: "SKIPPED" };
   const { error: updErr } = await svc
     .from("merge_candidates")
     .update({
-      status: decision === "duplicate" ? "MERGED" : "REJECTED",
-      decided_by: email,
-      decided_at: new Date().toISOString(),
+      status: statusMap[decision],
+      decided_by: decision === "skip" ? null : email,
+      decided_at: decision === "skip" ? null : new Date().toISOString(),
     })
     .eq("id", candidateId);
   if (updErr) return { ok: false, error: "No se pudo guardar la decisión." };
 
-  revalidatePath("/admin/duplicados");
-  revalidatePath("/mapa");
-  revalidatePath("/buscar");
+  revalidatePath("/admin/duplicados"); revalidatePath("/mapa"); revalidatePath("/buscar");
   return { ok: true };
+}
+
+export async function reopenMerge(candidateId: string): Promise<Result> {
+  try { await requireAdmin(); } catch { return { ok: false, error: "No autorizado." }; }
+  if (!UUID_RE.test(candidateId) && !candidateId.startsWith("mock-"))
+    return { ok: false, error: "Id inválido." };
+
+  if (!isSupabaseConfigured() && process.env.NODE_ENV === "development") {
+    await new Promise((r) => setTimeout(r, 200));
+    return { ok: true };
+  }
+
+  try {
+    await reopenMergeCandidate(candidateId);
+  } catch {
+    return { ok: false, error: "No se pudo reabrir." };
+  }
+
+  revalidatePath("/admin/duplicados"); revalidatePath("/admin/duplicados/revisados");
+  revalidatePath("/mapa"); revalidatePath("/buscar");
+  return { ok: true };
+}
+
+export async function releaseAssignments(): Promise<Result> {
+  try {
+    const email = await requireAdmin();
+    await releaseMyAssignments(email);
+    revalidatePath("/admin/duplicados");
+    return { ok: true };
+  } catch { return { ok: false, error: "No autorizado." }; }
+}
+
+export async function dismissNotification(notificationId: string): Promise<Result> {
+  if (!notificationId) return { ok: false, error: "Id inválido." };
+  try { await markNotificationRead(notificationId); return { ok: true }; }
+  catch { return { ok: false, error: "No se pudo descartar." }; }
 }
 
 // --- Manage admins -----------------------------------------------------------
 export async function addAdmin(email: string): Promise<Result> {
   let me: string;
-  try {
-    me = await requireAdmin();
-  } catch {
-    return { ok: false, error: "No autorizado." };
-  }
+  try { me = await requireAdmin(); } catch { return { ok: false, error: "No autorizado." }; }
   const clean = email.trim().toLowerCase();
-  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(clean))
-    return { ok: false, error: "Correo inválido." };
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(clean)) return { ok: false, error: "Correo inválido." };
   const svc = getServerSupabase();
-  const { error } = await svc
-    .from("admin_emails")
-    .upsert({ email: clean, added_by: me }, { onConflict: "email" });
+  const { error } = await svc.from("admin_emails").upsert({ email: clean, added_by: me }, { onConflict: "email" });
   if (error) return { ok: false, error: "No se pudo agregar." };
   revalidatePath("/admin/admins");
   return { ok: true };
@@ -208,11 +219,7 @@ export async function addAdmin(email: string): Promise<Result> {
 
 export async function removeAdmin(email: string): Promise<Result> {
   let me: string;
-  try {
-    me = await requireAdmin();
-  } catch {
-    return { ok: false, error: "No autorizado." };
-  }
+  try { me = await requireAdmin(); } catch { return { ok: false, error: "No autorizado." }; }
   const clean = email.trim().toLowerCase();
   if (clean === me) return { ok: false, error: "No puedes quitarte a ti mismo." };
   const svc = getServerSupabase();

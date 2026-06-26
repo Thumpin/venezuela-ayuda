@@ -10,7 +10,9 @@ import ManageControls from "@/components/ManageControls";
 import GuideInvitePopup from "@/components/GuideInvitePopup";
 import SightingForm from "@/components/SightingForm";
 import SightingsInbox from "@/components/SightingsInbox";
+import NotificationsPanel from "@/components/NotificationsPanel";
 import { getCheckin } from "@/lib/data";
+import { listNotifications } from "@/lib/admin";
 import { fullDate, timeAgo } from "@/lib/format";
 import { siteUrl } from "@/lib/share";
 import { CHECKIN_STATUSES, FOUND_BADGE } from "@/lib/constants";
@@ -46,6 +48,8 @@ export default async function Page({
 
   const tr = await getTranslations("detail");
   const tD = await getTranslations("domain");
+
+  const notifications = t ? await listNotifications(t) : [];
 
   const url = siteUrl(`/persona/${c.id}`);
   const statusLabel = tD(`checkinStatus.${c.status}`);
@@ -123,6 +127,10 @@ export default async function Page({
             <ShareButtons text={shareText} url={url} compact />
           </div>
         </article>
+
+        {notifications.length > 0 && (
+          <NotificationsPanel notifications={notifications} />
+        )}
 
         {c.status === "LOOKING_FOR_SOMEONE" && (
           <ManageControls
