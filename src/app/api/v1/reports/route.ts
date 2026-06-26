@@ -18,7 +18,7 @@ import {
   corsReadHeaders,
   readPreflightHeaders,
   SERVICE_UNAVAILABLE_MESSAGE,
-} from "@/lib/apiHttp.mjs";
+} from "@/lib/apiPolicy.mjs";
 
 // Recurso único `reports` del hub central (v1).
 //

@@ -14,7 +14,7 @@ import {
   readPreflightHeaders,
   SECURITY_HEADERS,
   API_SECURITY_HEADERS,
-} from "../src/lib/apiHttp.mjs";
+} from "../src/lib/apiPolicy.mjs";
 
 // ── Content-Type enforcement (POST/PATCH → 415 si no es JSON) ────────────────
 test("requireJsonContentType: acepta application/json con/sin charset, case-insensitive", () => {

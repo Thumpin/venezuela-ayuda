@@ -18,7 +18,7 @@ import {
   corsReadHeaders,
   readPreflightHeaders,
   SERVICE_UNAVAILABLE_MESSAGE,
-} from "@/lib/apiHttp.mjs";
+} from "@/lib/apiPolicy.mjs";
 
 // /api/v1/reports/{id} — un reporte por su id global (uuid).
 //

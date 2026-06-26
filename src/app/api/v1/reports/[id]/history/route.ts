@@ -4,7 +4,7 @@ import { rateLimit, clientKey } from "@/lib/rateLimit";
 import { PUBLIC_CDN_CACHE } from "@/lib/httpCache";
 import { isUuid } from "@/lib/reports.mjs";
 import { projectHistory } from "@/lib/audit.mjs";
-import { corsReadHeaders, readPreflightHeaders, SERVICE_UNAVAILABLE_MESSAGE } from "@/lib/apiHttp.mjs";
+import { corsReadHeaders, readPreflightHeaders, SERVICE_UNAVAILABLE_MESSAGE } from "@/lib/apiPolicy.mjs";
 
 // GET /api/v1/reports/{id}/history — audit trail de un reporte.
 //
