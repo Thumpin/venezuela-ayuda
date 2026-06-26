@@ -12,7 +12,9 @@ export default function PartnerManager({ partners }: { partners: PartnerRow[] })
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [createdKey, setCreatedKey] = useState<string | null>(null);
+  const [createdId, setCreatedId] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [copiedId, setCopiedId] = useState(false);
 
   async function onCreate(e: React.FormEvent) {
     e.preventDefault();
@@ -22,6 +24,7 @@ export default function PartnerManager({ partners }: { partners: PartnerRow[] })
       const res = await createPartner({ name: name.trim(), source: source.trim(), contact: contact.trim() });
       if (res.ok && res.key) {
         setCreatedKey(res.key); // se muestra una sola vez; no recargamos hasta que la copie
+        setCreatedId(res.id ?? null); // el id no es secreto, pero lo mostramos aquí también
         setName("");
         setSource("");
         setContact("");
@@ -61,18 +64,38 @@ export default function PartnerManager({ partners }: { partners: PartnerRow[] })
         <code className="mt-3 block break-all rounded-xl border border-[#cfe3d6] bg-white p-3 font-mono text-sm text-[#14212e]">
           {createdKey}
         </code>
-        <div className="mt-3 flex flex-wrap gap-2">
-          <button
-            type="button"
-            onClick={() => {
-              navigator.clipboard?.writeText(createdKey);
-              setCopied(true);
-            }}
-            style={{ backgroundColor: "#2f9e6e" }}
-            className="rounded-xl px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition active:scale-[0.99]"
-          >
-            {copied ? "Copiada ✓" : "Copiar key"}
-          </button>
+        <button
+          type="button"
+          onClick={() => {
+            navigator.clipboard?.writeText(createdKey);
+            setCopied(true);
+          }}
+          style={{ backgroundColor: "#2f9e6e" }}
+          className="mt-2 rounded-xl px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition active:scale-[0.99]"
+        >
+          {copied ? "Copiada ✓" : "Copiar key"}
+        </button>
+        {createdId && (
+          <div className="mt-4">
+            <p className="text-sm font-medium text-[#14212e]">
+              ID del colaborador <span className="font-normal text-[#1f7a52]">(no es secreto)</span>
+            </p>
+            <code className="mt-1.5 block break-all rounded-xl border border-[#cfe3d6] bg-white p-3 font-mono text-sm text-[#14212e]">
+              {createdId}
+            </code>
+            <button
+              type="button"
+              onClick={() => {
+                navigator.clipboard?.writeText(createdId);
+                setCopiedId(true);
+              }}
+              className="mt-2 rounded-xl border border-[#cfe3d6] px-4 py-2.5 text-sm font-medium text-[#1f7a52] transition hover:bg-white"
+            >
+              {copiedId ? "ID copiado ✓" : "Copiar ID"}
+            </button>
+          </div>
+        )}
+        <div className="mt-4 border-t border-[#cfe3d6] pt-3">
           <button
             type="button"
             onClick={() => location.reload()}
@@ -135,10 +158,9 @@ export default function PartnerManager({ partners }: { partners: PartnerRow[] })
                   </span>
                 )}
               </p>
-              <p className="mt-0.5 truncate text-xs text-[#8190a0]">
-                {p.source}
-                {p.key_prefix ? ` · ${p.key_prefix}…` : " · sin key"} · {fullDate(p.created_at)}
-              </p>
+              <p className="mt-1 truncate text-xs text-[#8190a0]">{p.source}</p>
+              <p className="mt-0.5 break-all font-mono text-xs text-[#8190a0]">external_id: {p.id}</p>
+              <p className="mt-0.5 truncate text-xs text-[#8190a0]">{fullDate(p.created_at)}</p>
             </div>
             {p.active && (
               <button

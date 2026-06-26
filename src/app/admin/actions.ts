@@ -9,7 +9,7 @@ import { generateApiKey, hashKey, parsePrefix } from "@/lib/apiAuth.mjs";
 
 export type AuthState = { error?: string };
 type Result = { ok: boolean; error?: string };
-type PartnerResult = Result & { key?: string };
+type PartnerResult = Result & { key?: string; id?: string };
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MODERATABLE = new Set(["checkins", "help_requests", "help_offers", "damaged_reports"]);
@@ -295,21 +295,25 @@ export async function createPartner(input: {
 
   const key = generateApiKey();
   const svc = getServerSupabase();
-  const { error } = await svc.from("api_partners").insert({
-    name,
-    source,
-    key_hash: hashKey(key),
-    key_prefix: parsePrefix(key),
-    scopes: ["write"],
-    contact,
-  });
+  const { data, error } = await svc
+    .from("api_partners")
+    .insert({
+      name,
+      source,
+      key_hash: hashKey(key),
+      key_prefix: parsePrefix(key),
+      scopes: ["write"],
+      contact,
+    })
+    .select("id")
+    .single();
   if (error) {
     if (/duplicate|unique/i.test(error.message))
       return { ok: false, error: "Ya existe un colaborador con ese source." };
     return { ok: false, error: "No se pudo crear el colaborador." };
   }
   revalidatePath("/admin/colaboradores");
-  return { ok: true, key }; // key visible una sola vez
+  return { ok: true, key, id: data.id }; // key visible una sola vez; id no es secreto
 }
 
 export async function revokePartner(id: string): Promise<Result> {
