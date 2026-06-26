@@ -87,25 +87,77 @@ export interface MergeSide {
   created_at: string;
 }
 
-export interface MergeCandidate {
+// Triage lane assigned by the dedup engine (0015): HARD = near-certain (same
+// phone + compatible name), STRONG = score >= 0.90, REVIEW = merely plausible.
+export type MergeTier = "HARD" | "STRONG" | "REVIEW";
+
+// One edge of the dedup graph: a single pending candidate pair. The cluster
+// builder keeps these so a per-block decision can map back to the real
+// merge_candidates rows it resolves.
+export interface MergePair {
   id: string;
-  tier: "HARD" | "STRONG" | "REVIEW";
+  tier: MergeTier;
   confidence: number;
-  reason: string;
   evidence: Record<string, unknown> | null;
-  keep: MergeSide;
-  dup: MergeSide;
+  keep_id: string;
+  dup_id: string;
 }
 
-// Pending duplicate pairs for human review, highest tier + confidence first.
-// Fetches both checkins of each pair so the UI can show them side by side.
-// phone_private is reduced to a boolean (never expose the number in the UI).
-export async function listMergeCandidates(limit = 50): Promise<MergeCandidate[]> {
+// A connected component of pending pairs: several checkins the engine has linked
+// (directly or transitively) as possibly the same person. The UI reviews the
+// whole block at once instead of one pair at a time.
+export interface MergeCluster {
+  // Stable id for the block (smallest member id) — used as a React key and to
+  // namespace form state. Not a DB row.
+  id: string;
+  // Highest tier / confidence across the block's pairs (drives triage order).
+  tier: MergeTier;
+  confidence: number;
+  // The member we suggest keeping (the richest row, by the same score the engine
+  // uses): first preselected as KEEP in the UI.
+  suggestedKeepId: string;
+  members: MergeSide[];
+  // The pending pairs that tie this block together. Resolving the block updates
+  // exactly these rows.
+  pairs: MergePair[];
+}
+
+const TIER_RANK: Record<string, number> = { HARD: 0, STRONG: 1, REVIEW: 2 };
+
+// "Richness" of a checkin, matching the engine's keep-picking order: has photo >
+// longer message > earlier created_at. Higher tuple = better canonical row.
+function richness(s: MergeSide): [number, number, number] {
+  return [s.photo_url ? 1 : 0, s.message?.length ?? 0, -new Date(s.created_at).getTime()];
+}
+function richer(a: MergeSide, b: MergeSide): boolean {
+  const ra = richness(a);
+  const rb = richness(b);
+  for (let i = 0; i < ra.length; i++) {
+    if (ra[i] !== rb[i]) return ra[i] > rb[i];
+  }
+  return a.id <= b.id;
+}
+
+// Which lane of the review queue to read. PENDING is the main queue; DEFERRED is
+// the "no estoy seguro" lane set aside for a second look.
+export type MergeQueue = "PENDING" | "DEFERRED";
+
+// Duplicate pairs in a given lane, grouped into BLOCKS (connected components) for
+// human review, highest tier + confidence first. Fetches every referenced
+// checkin so the UI can show each block's members side by side. phone_private is
+// reduced to a boolean (never expose the number in the UI).
+//
+// `limit` bounds the number of *pairs* pulled from the queue (cheap upper bound);
+// the resulting blocks are however many components those pairs form.
+export async function listMergeClusters(
+  status: MergeQueue = "PENDING",
+  limit = 200,
+): Promise<MergeCluster[]> {
   const svc = getServerSupabase();
   const { data: cands, error: candErr } = await svc
     .from("merge_candidates")
     .select("id,tier,confidence,reason,evidence,keep_id,dup_id")
-    .eq("status", "PENDING")
+    .eq("status", status)
     .eq("table_name", "checkins")
     .order("confidence", { ascending: false })
     .limit(limit);
@@ -131,19 +183,97 @@ export async function listMergeCandidates(limit = 50): Promise<MergeCandidate[]>
       created_at: r.created_at,
     });
 
-  const tierRank: Record<string, number> = { HARD: 0, STRONG: 1, REVIEW: 2 };
-  return cands
-    .map((c) => ({
+  // Union-find over the pairs → connected components. A pair whose checkin rows
+  // are missing (deleted) is dropped.
+  const parent = new Map<string, string>();
+  const find = (x: string): string => {
+    let root = x;
+    while (parent.get(root) !== root) root = parent.get(root)!;
+    while (parent.get(x) !== root) {
+      const next = parent.get(x)!;
+      parent.set(x, root);
+      x = next;
+    }
+    return root;
+  };
+  const union = (a: string, b: string) => {
+    const ra = find(a);
+    const rb = find(b);
+    if (ra !== rb) parent.set(ra, rb);
+  };
+  const ensure = (x: string) => {
+    if (!parent.has(x)) parent.set(x, x);
+  };
+
+  const pairs: MergePair[] = [];
+  for (const c of cands) {
+    if (!byId.has(c.keep_id) || !byId.has(c.dup_id)) continue;
+    ensure(c.keep_id);
+    ensure(c.dup_id);
+    union(c.keep_id, c.dup_id);
+    pairs.push({
       id: c.id,
-      tier: c.tier as MergeCandidate["tier"],
+      tier: c.tier as MergeTier,
       confidence: c.confidence,
-      reason: c.reason,
       evidence: c.evidence ?? null,
-      keep: byId.get(c.keep_id)!,
-      dup: byId.get(c.dup_id)!,
-    }))
-    .filter((c) => c.keep && c.dup)
-    .sort((a, b) => tierRank[a.tier] - tierRank[b.tier] || b.confidence - a.confidence);
+      keep_id: c.keep_id,
+      dup_id: c.dup_id,
+    });
+  }
+
+  // Bucket members and pairs by their component root.
+  const memberIds = new Map<string, Set<string>>();
+  for (const id of parent.keys()) {
+    const root = find(id);
+    (memberIds.get(root) ?? memberIds.set(root, new Set()).get(root)!).add(id);
+  }
+  const clusterPairs = new Map<string, MergePair[]>();
+  for (const p of pairs) {
+    const root = find(p.keep_id);
+    (clusterPairs.get(root) ?? clusterPairs.set(root, []).get(root)!).push(p);
+  }
+
+  const clusters: MergeCluster[] = [];
+  for (const [root, idSet] of memberIds) {
+    const members = Array.from(idSet)
+      .map((id) => byId.get(id)!)
+      .filter(Boolean)
+      .sort((a, b) => (richer(a, b) ? -1 : 1));
+    const blockPairs = clusterPairs.get(root) ?? [];
+    if (members.length < 2 || blockPairs.length === 0) continue;
+
+    // Block-level tier/confidence = the strongest pair in it.
+    const bestTier = blockPairs.reduce(
+      (acc, p) => (TIER_RANK[p.tier] < TIER_RANK[acc] ? p.tier : acc),
+      "REVIEW" as MergeTier,
+    );
+    const bestConf = blockPairs.reduce((acc, p) => Math.max(acc, p.confidence), 0);
+
+    clusters.push({
+      id: [...idSet].sort()[0],
+      tier: bestTier,
+      confidence: bestConf,
+      suggestedKeepId: members[0].id, // already sorted richest-first
+      members,
+      pairs: blockPairs,
+    });
+  }
+
+  return clusters.sort(
+    (a, b) => TIER_RANK[a.tier] - TIER_RANK[b.tier] || b.confidence - a.confidence,
+  );
+}
+
+// Number of candidate pairs currently set aside in the "dudosos" lane. Counts
+// pairs, not blocks (cheap, exact enough for a "Ver dudosos (N)" badge).
+export async function countDeferredCandidates(): Promise<number> {
+  const svc = getServerSupabase();
+  const { count } = await svc
+    .from("merge_candidates")
+    .select("id", { count: "exact", head: true })
+    .eq("status", "DEFERRED")
+    .eq("table_name", "checkins");
+  return count ?? 0;
 }
 
 // Recent community submissions across the three tables for spam/false-report
