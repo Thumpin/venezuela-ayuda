@@ -25,7 +25,8 @@ export default async function ColaboradoresPage() {
         <h1 className="mt-3 text-xl font-bold text-[#14212e]">Colaboradores</h1>
         <p className="mt-1 text-sm text-[#5b6b7b]">
           Sitios que publican reportes en el hub vía la API. Cada uno recibe una
-          key (se muestra una sola vez al crearla).
+          key (se muestra una sola vez al crearla). Al revocar, la key puede
+          seguir funcionando hasta ~1 minuto (cache de autenticación).
         </p>
         <div className="mt-5">
           <PartnerManager partners={partners} />

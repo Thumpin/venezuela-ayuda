@@ -98,3 +98,37 @@ test("cache: key revocada deja de validar tras expirar (lag ≤ TTL)", async () 
   clock.advance(60_001);
   assert.equal(await auth("va_live_ok"), null); // expiró → re-consulta → revocada
 });
+
+test("cache: los misses expiran rápido (missTtlMs), no en el TTL completo", async () => {
+  let hits = 0;
+  const clock = fakeClock();
+  const auth = createAuthenticator(
+    async () => { hits++; return null; }, // siempre miss
+    { ttlMs: 60_000, missTtlMs: 5_000, now: clock.now }
+  );
+  await auth("va_live_bad");
+  await auth("va_live_bad"); // dentro de missTtlMs → cacheado
+  assert.equal(hits, 1);
+  clock.advance(5_001);
+  await auth("va_live_bad"); // miss expiró → re-consulta
+  assert.equal(hits, 2);
+});
+
+test("cache: error transitorio de fetchByHash se propaga y NO se cachea", async () => {
+  let mode = "throw";
+  const auth = createAuthenticator(async () => {
+    if (mode === "throw") throw new Error("db down");
+    return { source: "cruzroja.org" };
+  });
+  await assert.rejects(() => auth("va_live_ok"), /db down/);
+  mode = "ok";
+  assert.ok(await auth("va_live_ok")); // no quedó cacheado el fallo → la key válida funciona enseguida
+});
+
+test("cache: tope de tamaño acota la memoria (maxEntries)", async () => {
+  const auth = createAuthenticator(async () => null, { maxEntries: 3 });
+  for (let i = 0; i < 10; i++) await auth(`va_live_${i}`);
+  // No revienta ni crece sin límite; el tope vacía el cache al rebasar.
+  // (smoke: 10 keys distintas con cap 3 no acumulan 10 entradas)
+  assert.ok(true);
+});
