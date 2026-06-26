@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getServerSupabase } from "@/lib/supabase/server";
 import { rateLimit, clientKey } from "@/lib/rateLimit";
+import { PUBLIC_CDN_CACHE } from "@/lib/httpCache";
 import {
   resolveType,
   parseLimit,
@@ -74,6 +75,11 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "Servicio no disponible." }, { status: 503 });
   }
 
+  // Cache en el Edge de Vercel sólo en el camino feliz (200). Los errores
+  // (400/429/503) ya retornaron arriba sin Cache-Control, a propósito.
   const reports = data ?? [];
-  return NextResponse.json({ reports, next_cursor: buildNextCursor(reports, limit) });
+  return NextResponse.json(
+    { reports, next_cursor: buildNextCursor(reports, limit) },
+    { headers: { "Cache-Control": PUBLIC_CDN_CACHE } }
+  );
 }
