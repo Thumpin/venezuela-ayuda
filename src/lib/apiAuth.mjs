@@ -3,7 +3,7 @@
 // api_partners) lo arma la ruta server-side, inyectando `fetchByHash` a
 // `createAuthenticator`.
 //
-// Diseño para escala: cada `POST /api/ingest` valida una key; sin cache eso
+// Diseño para escala: cada `POST /api/v1/reports` valida una key; sin cache eso
 // sería un round-trip a Postgres por request. `createAuthenticator` cachea
 // `key_hash → partner` con TTL corto (default 60s). La revocación tiene lag
 // ≤ TTL — aceptable para coordinación de emergencia.

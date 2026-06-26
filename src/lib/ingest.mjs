@@ -20,10 +20,13 @@ import {
 } from "./canonical.mjs";
 
 const CONTROL = new RegExp("[\\u0000-\\u0008\\u000B\\u000C\\u000E-\\u001F\\u007F]", "g");
-const VE = { minLat: 0, maxLat: 16, minLng: -74, maxLng: -59 };
+// Bounding box de Venezuela. Exportado para que patch.mjs aplique la MISMA regla
+// de coords sin duplicar el rango.
+export const VE = { minLat: 0, maxLat: 16, minLng: -74, maxLng: -59 };
 
-// Limpia y recorta texto; null si vacío.
-function clean(v, max) {
+// Limpia y recorta texto; null si vacío. Exportado: la validación del PATCH
+// espeja exactamente este clamp/strip de control chars.
+export function clean(v, max) {
   if (typeof v !== "string") return null;
   const s = v.replace(CONTROL, "").replace(/\s+/g, " ").trim().slice(0, max);
   return s.length ? s : null;
@@ -43,7 +46,7 @@ const err = (m) => ({ ok: false, error: m });
 // help_offer.available: default true; clientes con JSON laxo pueden mandar
 // false/"false"/0/"0"/"no" → tratarlos como NO disponible (no voltearlos a true).
 const UNAVAILABLE = new Set([false, "false", 0, "0", "no"]);
-const isAvailable = (v) => !UNAVAILABLE.has(typeof v === "string" ? v.toLowerCase() : v);
+export const isAvailable = (v) => !UNAVAILABLE.has(typeof v === "string" ? v.toLowerCase() : v);
 
 // report (forma canónica del socio) + source (de la key) → { ok, table, row } | { ok:false, error }
 export function buildRow(report, source) {

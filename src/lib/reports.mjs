@@ -38,6 +38,52 @@ export function resolveType(type) {
   return { ok: true, view: m.view, status: m.status ?? null, select: VIEW_COLUMNS[m.view].join(",") };
 }
 
+// ── Resolución por id global (GET/PATCH /reports/{id}) ──────────────────────
+// El id de un reporte es un uuid global y único; vive en una de las 4 tablas. Se
+// resuelve probando las tablas (id es PK). Estos mapas son la fuente única del
+// ruteo type↔tabla↔vista compartida por lectura y escritura.
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// uuid canónico (8-4-4-4-12 hex). Gate antes de tocar la DB: evita castear basura
+// a uuid (error 22P02) y acota la superficie de query.
+export function isUuid(v) {
+  return typeof v === "string" && UUID_RE.test(v);
+}
+
+// type (wire) → tabla destino. Espeja el switch de ingest.mjs.
+export const TABLE_FOR_TYPE = {
+  missing_person: "checkins",
+  checkin: "checkins",
+  help_request: "help_requests",
+  help_offer: "help_offers",
+  damaged_building: "damaged_reports",
+};
+
+// tabla → vista pública (sin PII).
+export const VIEW_FOR_TABLE = {
+  checkins: "public_checkins",
+  help_requests: "public_help_requests",
+  help_offers: "public_help_offers",
+  damaged_reports: "public_damaged_reports",
+};
+
+// Tablas a probar para resolver un id, con su vista y columnas públicas (reusa
+// VIEW_COLUMNS → nunca incluye PII). Orden estable.
+export const RESOURCES = ["checkins", "help_requests", "help_offers", "damaged_reports"].map((table) => {
+  const view = VIEW_FOR_TABLE[table];
+  return { table, view, columns: VIEW_COLUMNS[view] };
+});
+
+// tabla (+ fila pública) → type (wire). checkins comparte missing_person/checkin,
+// se desambigua por status, igual que en lectura/escritura.
+export function typeForResource(table, row) {
+  if (table === "checkins") {
+    return row?.status === "LOOKING_FOR_SOMEONE" ? "missing_person" : "checkin";
+  }
+  return { help_requests: "help_request", help_offers: "help_offer", damaged_reports: "damaged_building" }[table] ?? null;
+}
+
 // limit crudo (string|number|null) → entero acotado [1, MAX_LIMIT], default DEFAULT_LIMIT.
 export function parseLimit(raw) {
   const n = Number(raw);

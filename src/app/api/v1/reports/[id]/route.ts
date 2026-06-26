@@ -1,0 +1,197 @@
+import { NextResponse } from "next/server";
+import { getServerSupabase } from "@/lib/supabase/server";
+import { rateLimit, clientKey } from "@/lib/rateLimit";
+import { PUBLIC_CDN_CACHE } from "@/lib/httpCache";
+import { authenticatePartner, requestMeta } from "@/lib/partnerAuth";
+import { buildPatch } from "@/lib/patch.mjs";
+import {
+  isUuid,
+  RESOURCES,
+  VIEW_COLUMNS,
+  VIEW_FOR_TABLE,
+  typeForResource,
+} from "@/lib/reports.mjs";
+
+// /api/v1/reports/{id} — un reporte por su id global (uuid).
+//
+// GET: lectura ABIERTA, proyectada SIN PII (lee las vistas public_*). El id es
+// global y único; se resuelve probando las 4 vistas (id es PK). La respuesta
+// añade `type` (discriminador) — NUNCA va en la ruta.
+//
+// PATCH: modificación parcial, cerrada por API key (scope `write`). Vía RPC
+// `patch_report` (UPDATE + audit before/after, atómico). NO permite cambiar
+// id/source/external_id (el creador original se preserva; el editor solo queda
+// en el audit). Valida el patch contra el esquema del type correcto.
+
+export const runtime = "nodejs";
+export const maxDuration = 30;
+
+type Params = { params: Promise<{ id: string }> };
+
+// Proyecta una fila CRUDA (con PII) a sus columnas públicas + `type`. Whitelist
+// por VIEW_COLUMNS → phone_private/contact/manage_token nunca salen.
+function projectPublic(table: string, row: Record<string, unknown>): Record<string, unknown> {
+  // VIEW_COLUMNS/VIEW_FOR_TABLE vienen de un .mjs sin tipos → TS los infiere como
+  // objetos literales sin index signature. Se acotan a Record para indexar por la
+  // tabla resuelta en runtime.
+  const viewFor = VIEW_FOR_TABLE as Record<string, string>;
+  const colsByView = VIEW_COLUMNS as Record<string, string[]>;
+  const cols = colsByView[viewFor[table]] ?? [];
+  const out: Record<string, unknown> = { type: typeForResource(table, row) };
+  for (const c of cols) out[c] = row[c] ?? null;
+  return out;
+}
+
+export async function GET(req: Request, { params }: Params) {
+  const { id } = await params;
+  if (!isUuid(id)) {
+    return NextResponse.json({ error: "id inválido (se espera un uuid)." }, { status: 400 });
+  }
+
+  const rl = rateLimit(await clientKey("reports:item"), { limit: 120, windowSec: 60 });
+  if (!rl.ok) {
+    return NextResponse.json(
+      { error: "Demasiadas solicitudes." },
+      { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } }
+    );
+  }
+
+  // Probar las 4 vistas públicas en paralelo (id es PK). La vista filtra hidden
+  // y omite PII por construcción. Primera que devuelve fila → ese es el reporte.
+  const svc = getServerSupabase();
+  const lookups = await Promise.allSettled(
+    RESOURCES.map((r) =>
+      svc.from(r.view).select((r.columns as string[]).join(",")).eq("id", id).maybeSingle()
+    )
+  );
+
+  for (let i = 0; i < lookups.length; i++) {
+    const out = lookups[i];
+    if (out.status === "rejected") {
+      return NextResponse.json({ error: "Servicio no disponible." }, { status: 503 });
+    }
+    if (out.value.error) {
+      return NextResponse.json({ error: "Servicio no disponible." }, { status: 503 });
+    }
+    const row = out.value.data as Record<string, unknown> | null;
+    if (row) {
+      const table = RESOURCES[i].table;
+      return NextResponse.json(
+        { report: { type: typeForResource(table, row), ...row } },
+        { headers: { "Cache-Control": PUBLIC_CDN_CACHE } }
+      );
+    }
+  }
+
+  return NextResponse.json({ error: "Reporte no encontrado." }, { status: 404 });
+}
+
+export async function PATCH(req: Request, { params }: Params) {
+  const { id } = await params;
+  if (!isUuid(id)) {
+    return NextResponse.json({ error: "id inválido (se espera un uuid)." }, { status: 400 });
+  }
+
+  // Auth (igual que POST): 503 en fallo de DB, 401 sin partner, 403 sin scope.
+  let partner: { partnerId: string; source: string; scopes: string[] } | null;
+  try {
+    partner = await authenticatePartner(req.headers.get("x-api-key"));
+  } catch {
+    return NextResponse.json({ error: "Servicio no disponible." }, { status: 503 });
+  }
+  if (!partner) {
+    return NextResponse.json({ error: "API key inválida o ausente." }, { status: 401 });
+  }
+  if (!partner.scopes?.includes("write")) {
+    return NextResponse.json({ error: "La key no tiene permiso de escritura." }, { status: 403 });
+  }
+  const source = partner.source;
+
+  const rl = rateLimit(`reports:write:${source}`, { limit: 120, windowSec: 60 });
+  if (!rl.ok) {
+    return NextResponse.json(
+      { error: "Demasiadas solicitudes." },
+      { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } }
+    );
+  }
+
+  let body: unknown;
+  try {
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ error: "Cuerpo JSON inválido." }, { status: 400 });
+  }
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return NextResponse.json({ error: "El cuerpo debe ser un objeto con los campos a modificar." }, { status: 400 });
+  }
+
+  // Resolver la tabla/type del id contra las tablas base (service key). Se usa la
+  // tabla base (no la vista) para poder editar incluso filas moderadas (hidden):
+  // una corrección upstream de un socio es legítima; la moderación es un flag
+  // interno, no una razón para bloquear el fix. Se selecciona `id` (+ `status`
+  // en checkins, que desambigua missing_person vs checkin).
+  const svc = getServerSupabase();
+  const probes = await Promise.allSettled(
+    RESOURCES.map((r) =>
+      svc.from(r.table).select(r.table === "checkins" ? "id,status" : "id").eq("id", id).maybeSingle()
+    )
+  );
+
+  let table: string | null = null;
+  let resolvedType: string | null = null;
+  for (let i = 0; i < probes.length; i++) {
+    const out = probes[i];
+    if (out.status === "rejected" || out.value.error) {
+      return NextResponse.json({ error: "Servicio no disponible." }, { status: 503 });
+    }
+    const row = out.value.data as Record<string, unknown> | null;
+    if (row) {
+      table = RESOURCES[i].table;
+      resolvedType = typeForResource(table, row);
+      break;
+    }
+  }
+  if (!table || !resolvedType) {
+    return NextResponse.json({ error: "Reporte no encontrado." }, { status: 404 });
+  }
+
+  // El `type` del body (si viene) es solo confirmación del discriminador; debe
+  // coincidir con el type real del id. No se puede reclasificar por la ruta.
+  const bodyType = (body as { type?: unknown }).type;
+  if (bodyType != null && bodyType !== resolvedType) {
+    return NextResponse.json(
+      { error: `El type del body (${String(bodyType)}) no coincide con el del reporte (${resolvedType}).` },
+      { status: 400 }
+    );
+  }
+
+  const patch = buildPatch(resolvedType, body) as
+    | { ok: true; table: string; patch: Record<string, unknown> }
+    | { ok: false; error: string };
+  if (!patch.ok) {
+    return NextResponse.json({ error: patch.error }, { status: 400 });
+  }
+
+  const meta = requestMeta(req);
+  const { data, error } = await svc.rpc("patch_report", {
+    p_table: table,
+    p_id: id,
+    p_patch: patch.patch,
+    p_partner: partner.partnerId,
+    p_source: source,
+    p_request_id: meta.requestId,
+    p_ip: meta.ip,
+    p_user_agent: meta.userAgent,
+  });
+  if (error) {
+    return NextResponse.json({ error: "Servicio no disponible." }, { status: 503 });
+  }
+  // RPC devuelve null si la fila desapareció entre el probe y el update (carrera).
+  if (!data) {
+    return NextResponse.json({ error: "Reporte no encontrado." }, { status: 404 });
+  }
+
+  // Proyectar la fila resultante SIN PII antes de responder (el RPC devuelve la
+  // fila cruda con phone_private/contact).
+  return NextResponse.json({ report: projectPublic(table, data as Record<string, unknown>) }, { status: 200 });
+}

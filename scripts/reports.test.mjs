@@ -11,6 +11,11 @@ import {
   DEFAULT_LIMIT,
   MAX_LIMIT,
   VIEW_COLUMNS,
+  isUuid,
+  TABLE_FOR_TYPE,
+  VIEW_FOR_TABLE,
+  RESOURCES,
+  typeForResource,
 } from "../src/lib/reports.mjs";
 
 test("REPORT_TYPES son los 5 del catálogo (espejo de la escritura)", () => {
@@ -81,6 +86,41 @@ test("buildNextCursor: página llena → created_at|id; página parcial → null
 test("buildNextCursor: created_at faltante en el último → null (no rompe)", () => {
   const rows = [{ id: "a", created_at: null }];
   assert.equal(buildNextCursor(rows, 1), null);
+});
+
+test("isUuid: acepta uuid v4 canónico, rechaza basura", () => {
+  assert.equal(isUuid("550e8400-e29b-41d4-a716-446655440000"), true);
+  assert.equal(isUuid("not-a-uuid"), false);
+  assert.equal(isUuid(""), false);
+  assert.equal(isUuid(null), false);
+  assert.equal(isUuid("550e8400-e29b-41d4-a716-44665544000"), false); // corto
+});
+
+test("TABLE_FOR_TYPE cubre los 5 types y rutea a 4 tablas", () => {
+  assert.equal(TABLE_FOR_TYPE.missing_person, "checkins");
+  assert.equal(TABLE_FOR_TYPE.checkin, "checkins");
+  assert.equal(TABLE_FOR_TYPE.help_request, "help_requests");
+  assert.equal(TABLE_FOR_TYPE.help_offer, "help_offers");
+  assert.equal(TABLE_FOR_TYPE.damaged_building, "damaged_reports");
+});
+
+test("RESOURCES lista las 4 tablas con su vista pública", () => {
+  assert.equal(RESOURCES.length, 4);
+  for (const r of RESOURCES) {
+    assert.equal(VIEW_FOR_TABLE[r.table], r.view);
+    assert.ok(Array.isArray(r.columns) && r.columns.includes("id"));
+    assert.ok(!r.columns.includes("phone_private"));
+    assert.ok(!r.columns.includes("contact"));
+  }
+});
+
+test("typeForResource: checkins se desambigua por status; resto es directo", () => {
+  assert.equal(typeForResource("checkins", { status: "LOOKING_FOR_SOMEONE" }), "missing_person");
+  assert.equal(typeForResource("checkins", { status: "SAFE" }), "checkin");
+  assert.equal(typeForResource("checkins", { status: "NEEDS_HELP" }), "checkin");
+  assert.equal(typeForResource("help_requests", {}), "help_request");
+  assert.equal(typeForResource("help_offers", {}), "help_offer");
+  assert.equal(typeForResource("damaged_reports", {}), "damaged_building");
 });
 
 test("parseSince: created_at|id, timestamp pelón, y basura", () => {

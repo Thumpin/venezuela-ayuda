@@ -14,23 +14,36 @@ no reprocesar.**
 ## 1. Modelo en una imagen
 
 ```
-Sitio socio ──(POST + x-api-key, filas canónicas)──▶  POST /api/v1/ingest  ─┐
-                                                       (cerrado por key)  │ service key
-                                                                          ▼
-Sitio socio ──(GET, abierto, sin key)──▶ GET /api/v1/reports ────────────▶  Postgres
-                              (recomendado) │  lee vistas public_* sin tel.  (tablas actuales)
-                              (alternativa)  └─▶ Supabase REST /rest/v1/public_*
+Sitio socio ─(POST + x-api-key, batch)──▶ POST  /api/v1/reports        ─┐ crear  (audita CREATE)
+Sitio socio ─(PATCH + x-api-key)────────▶ PATCH /api/v1/reports/{id}    ─┤ editar (audita UPDATE)
+                                          (cerrado por key)             │ service key (RPC atómica)
+                                                                        ▼
+Sitio socio ─(GET, abierto)──▶ GET /api/v1/reports           ──────────▶ Postgres ──▶ audit_log
+Sitio socio ─(GET, abierto)──▶ GET /api/v1/reports/{id}      │ lee public_*  (tablas)    (append-only)
+Sitio socio ─(GET, abierto)──▶ GET /api/v1/reports/{id}/history │ proyecta sin PII ◀──────┘
+                                  └─▶ (alternativa) Supabase REST /rest/v1/public_*
 
 Dedup fuzzy / cross-fuente  →  lo dueña OTRO equipo (fuera de esta API).
 ```
 
-- **Escritura:** solo por `POST /api/v1/ingest`, **cerrada por API key**. No hay
-  escritura anónima.
+Recurso único: **`reports`**. El `id` (uuid global) es la identidad estable; el
+`type` es **discriminador del payload/respuesta, NUNCA va en la ruta**.
+
+- **Escritura:** crear por `POST /api/v1/reports`, modificar por `PATCH
+  /api/v1/reports/{id}` — ambos **cerrados por API key** (scope `write`). No hay
+  escritura anónima. Cada mutación es **atómica con su registro de auditoría**
+  (RPC plpgsql: mutación + insert al audit en la misma transacción).
 - **Atribución:** toda fila lleva `source` = identidad del socio, **estampada
-  desde la key** (no se confía en el body → no es falsificable).
-- **Lectura:** abierta, sin key. Vía recomendada `GET /api/v1/reports` (un host,
-  cursor estable); el acceso directo a Supabase REST (`/rest/v1/public_*`) queda
-  como alternativa. Ambas leen las vistas `public_*` — sin teléfonos ni contactos.
+  desde la key** (no se confía en el body → no es falsificable). En PATCH el
+  `source`/`external_id`/`id` son **inmutables**: el creador original se preserva;
+  el editor solo queda registrado en el audit log.
+- **Trazabilidad:** todo CREATE/UPDATE deja un evento inmutable y atribuible en
+  `audit_log` (append-only). Consultable, proyectado sin PII, por `GET
+  /api/v1/reports/{id}/history`.
+- **Lectura:** abierta, sin key. `GET /api/v1/reports` (colección, cursor
+  estable) y `GET /api/v1/reports/{id}` (un reporte). El acceso directo a Supabase
+  REST (`/rest/v1/public_*`) queda como alternativa. Todas leen las vistas
+  `public_*` — sin teléfonos ni contactos.
 
 ---
 
@@ -91,7 +104,7 @@ con origen conocido.**
 ## 2.5 Catálogo de `type` (los 5 valores → tabla/vista)
 
 `type` es un **conjunto cerrado de 5 valores** — el catálogo del hub. Es el mismo
-en escritura (`POST /api/v1/ingest`, campo del reporte) y en lectura
+en escritura (`POST /api/v1/reports`, campo del reporte) y en lectura
 (`GET /api/v1/reports`, parámetro requerido). Cada valor mapea a una tabla/vista
 concreta:
 
@@ -112,7 +125,14 @@ lectura).
 
 ## 3. Endpoints
 
-### 3.1 Escritura — `POST /api/v1/ingest` (cerrado por API key)
+### 3.1 Crear — `POST /api/v1/reports` (cerrado por API key)
+
+> Renombrado desde `POST /api/v1/ingest` (sin alias — no había consumidores aún).
+> Misma lógica: validación + ruteo por `type`, MAX 200/lote, idempotencia upsert
+> por `(source, external_id)`, fail-closed (401/403/413/429/503). Lo NUEVO: la
+> escritura va por un RPC `ingest_reports` que hace **upsert + audit CREATE de
+> cada fila en una sola transacción** (atómico por tabla → se preserva el
+> éxito-parcial-por-tabla).
 
 **Headers**
 ```
@@ -274,6 +294,105 @@ Paginación/filtros: los nativos de PostgREST (`limit`, `offset`/`Range`,
 `created_at=gt.<cursor>`, `order=`, etc.). **Nunca** se exponen `phone_private`
 ni `contact`.
 
+### 3.3 Leer un reporte — `GET /api/v1/reports/{id}` (abierto, sin PII)
+
+Lectura abierta de **un** reporte por su `id` global (uuid). El `id` se resuelve
+entre las 4 vistas `public_*`; la respuesta añade el campo `type` (discriminador).
+Reportes moderados (ocultos) → 404.
+
+```
+GET /api/v1/reports/8f3a…-uuid
+→ 200 { "report": { "type": "help_request", "id": "8f3a…", "category": "medical", … } }
+→ 400 si el id no es un uuid · 404 si no existe (o está oculto)
+```
+
+### 3.4 Modificar — `PATCH /api/v1/reports/{id}` (cerrado por API key)
+
+Modificación parcial, cerrada por API key (scope `write`). **Edición
+cross-cliente PERMITIDA** (el hub es colaborativo): cualquier socio puede editar
+cualquier reporte. La seguridad no la da prohibir la edición, sino el **audit log
+inmutable y atribuible** (§3.6) — quién editó qué queda registrado para siempre,
+y habilita revertir acciones de un socio malicioso (la herramienta de reversión
+es un trabajo aparte).
+
+```
+PATCH /api/v1/reports/8f3a…-uuid     (x-api-key requerido)
+{ "status": "RESOLVED", "urgency": "LOW" }      // solo los campos a cambiar
+→ 200 { "report": { "type": "help_request", …, "status": "RESOLVED" } }
+```
+
+Reglas:
+- **Inmutables** → 400 si se intentan cambiar: `id`, `source`, `external_id`. El
+  creador original se **preserva**; el editor solo queda en el audit.
+- Solo se aceptan **campos mutables** del `type` (status, severity, available,
+  found_at, description, category, urgency, coords, place_name, contact, …). Un
+  campo desconocido/no-modificable → 400.
+- El `type` en el body es **opcional** y solo confirma el discriminador: si se
+  envía, debe coincidir con el type real del `id`. El `id` determina el reporte;
+  no se reclasifica por la ruta.
+- A diferencia del POST (que **clampa** valores laxos a un default), el PATCH
+  **rechaza** enums/coordenadas inválidos con 400 — una edición explícita inválida
+  es un error del cliente, no algo que adivinar. Las coords requieren `latitude` y
+  `longitude` juntas, dentro del bounding box VE.
+- `contact` se acepta (se guarda en el campo privado, nunca se devuelve por lectura).
+- Atómico con el audit: la modificación va por un RPC `patch_report` que hace
+  `UPDATE` + insert al audit (before/after completos) en la misma transacción.
+
+| Código | Causa |
+|---|---|
+| 400 | id no-uuid, body inválido, campo inmutable/no-modificable, o valor inválido |
+| 401 | falta `x-api-key` o es inválida/revocada |
+| 403 | la key no tiene scope `write` |
+| 404 | no existe un reporte con ese id |
+| 429 | rate limit (`Retry-After`) |
+| 503 | falla de servicio/DB — reintentá |
+
+### 3.5 Historial — `GET /api/v1/reports/{id}/history` (abierto, proyectado)
+
+Rastro de auditoría de un reporte, en **orden cronológico inmutable**. Abierto
+(sin key) pero **proyectado**: solo `action`, `occurred_at`, `source` y los
+**campos públicos que cambiaron** (`from`→`to`). NUNCA expone PII
+(`contact`/teléfonos/`manage_token`/`risk_answers`) ni forense (`ip`/`user_agent`)
+— eso vive solo en el audit log interno. Un reporte sin mutaciones por la API
+(orgánico/preexistente) devuelve `history` vacío.
+
+```
+GET /api/v1/reports/8f3a…-uuid/history
+→ 200 {
+    "id": "8f3a…",
+    "history": [
+      { "action": "CREATE", "occurred_at": "2026-06-26T10:00:00Z", "source": "cruzroja.org",
+        "changes": { "category": { "from": null, "to": "medical" }, "status": { "from": null, "to": "OPEN" } } },
+      { "action": "UPDATE", "occurred_at": "2026-06-26T14:30:00Z", "source": "proteccioncivil.gob.ve",
+        "changes": { "status": { "from": "OPEN", "to": "RESOLVED" } } }
+    ]
+  }
+```
+
+### 3.6 Audit log + trazabilidad (capacidad core)
+
+Toda mutación por la API deja un registro en `audit_log` — tabla **append-only**:
+
+- `seq` (bigint identity) = orden total inmutable; `occurred_at`; `partner_id`
+  (QUIÉN, de la key) + `source` (snapshot); `action` (`CREATE`|`UPDATE`|`HIDE`);
+  `resource_table`/`resource_id`/`external_id`; `before`/`after` = **snapshot
+  COMPLETO** (interno, puede incluir PII); `request_id`/`ip`/`user_agent`.
+- **Append-only forzado en la DB**: RLS on, sin policies de update/delete, y
+  `revoke update, delete … from anon, authenticated`. Nadie reescribe la historia.
+- **Atómico con la mutación**: el insert al audit y la mutación del reporte van en
+  la **misma transacción**, vía funciones plpgsql RPC (`ingest_reports`,
+  `patch_report`) que el endpoint llama con el service key. Se eligió RPC sobre
+  triggers+GUC porque el actor (partner/source/request_id/ip/ua) viaja como
+  parámetro explícito — imposible de omitir y sin fragilidad de GUCs sobre el
+  pooling de PostgREST. (Las funciones tienen `execute` revocado a anon/
+  authenticated: solo el service role las invoca.)
+- El `before`/`after` completo es **interno/admin**. La vista pública del rastro
+  (`GET /{id}/history`) proyecta solo campos públicos que cambiaron.
+- Habilita (a futuro, otro PR) **revertir** acciones de un socio malicioso — acá
+  solo se deja el cimiento append-only que lo hace posible.
+
+> Migración: `supabase/migrations/0016_audit_log.sql`.
+
 ---
 
 ## 4. API keys (las crea el admin del sitio)
@@ -296,8 +415,10 @@ Para integrar a un socio: el admin lo da de alta en el panel y le entrega su key
 ## 5. Documentación que se sirve desde el sitio
 
 - **OpenAPI 3.1**: `public/openapi.yaml`, servido crudo en `GET /api/openapi`.
-  Describe `POST /api/v1/ingest` y `GET /api/v1/reports`, y referencia el acceso
-  directo a `public_*` como alternativa.
+  Describe `POST /api/v1/reports`, `GET /api/v1/reports`, `GET|PATCH
+  /api/v1/reports/{id}`, `GET /api/v1/reports/{id}/history` (+ el schema
+  `AuditEventPublic` de un evento de audit), y referencia el acceso directo a
+  `public_*` como alternativa.
 - **Swagger / Scalar UI**: página `/docs` que renderiza el spec — para que un
   integrador lea el contrato y pruebe llamadas.
 
@@ -323,8 +444,10 @@ Para integrar a un socio: el admin lo da de alta en el panel y le entrega su key
 | # | Entregable | Tipo |
 |---|---|---|
 | 1 | Migración `0015` — `api_partners` + columnas en `help_offers` + índices únicos | DB |
+| 1b | Migración `0016` — `audit_log` append-only + RPC atómicas `ingest_reports`/`patch_report` | DB |
 | 2 | Auth por API key (hash + lookup) | backend |
-| 3 | `POST /api/v1/ingest` (cerrado por key, upsert idempotente, atribución `source`) | endpoint |
+| 3 | `POST /api/v1/reports` (cerrado por key, upsert idempotente, atribución `source`, audita CREATE) | endpoint |
+| 3b | `PATCH /api/v1/reports/{id}` (cerrado por key, audita UPDATE) + `GET /{id}` + `GET /{id}/history` | endpoint |
 | 4 | `GET /api/v1/reports` (lectura abierta sin PII, cursor estable, vía recomendada) | endpoint |
 | 5 | OpenAPI + `/docs` (Swagger) | docs |
 | 6 | Gestión de colaboradores + keys en el panel admin existente (`/admin/colaboradores`) | admin UI |

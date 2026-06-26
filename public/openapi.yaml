@@ -6,12 +6,18 @@ info:
     API de coordinación de datos tras el terremoto de Venezuela.
 
     `venezuela-ayuda.com` es el **hub central**: los sitios socios **publican**
-    reportes vía `POST /api/v1/ingest` (cerrado por API key) y **leen** el
+    reportes vía `POST /api/v1/reports` (cerrado por API key) y **leen** el
     conjunto unificado por `GET /api/v1/reports` (abierto, sin PII).
+
+    El recurso es único: **`reports`**. El `id` (uuid global) es la identidad
+    estable de un reporte; el `type` es un **discriminador del payload/respuesta**,
+    NUNCA va en la ruta. Toda mutación (crear/modificar) deja un rastro inmutable y
+    atribuible en un **audit log** append-only, consultable (proyectado, sin PII)
+    por `GET /api/v1/reports/{id}/history`.
 
     ## Tipos de reporte (`type`)
     `type` es un **conjunto cerrado de 5 valores** — el catálogo del hub. Es el
-    mismo en escritura (`POST /api/v1/ingest`, campo del reporte) y en lectura
+    mismo en escritura (`POST /api/v1/reports`, campo del reporte) y en lectura
     (`GET /api/v1/reports`, parámetro requerido). Cada valor representa una clase
     de reporte y mapea a una tabla/vista concreta:
 
@@ -81,10 +87,10 @@ servers:
   - url: https://terremoto.hazlohoy.org
 
 paths:
-  /api/v1/ingest:
+  /api/v1/reports:
     post:
-      summary: Publicar reportes en el hub (push autenticado)
-      operationId: ingestReports
+      summary: Crear reportes en el hub (push autenticado, batch)
+      operationId: createReports
       description: |
         Éxito parcial dentro de un 200: el upsert es **por tabla**, así que un error
         de DB en una tabla marca **todas** las filas de esa tabla como `status:error`,
@@ -138,8 +144,6 @@ paths:
         "503":
           description: Falla de servicio/DB — toda la escritura falló; reintenta.
           content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
-
-  /api/v1/reports:
     get:
       summary: Leer reportes unificados del hub (abierto, sin PII)
       operationId: listReports
@@ -186,6 +190,150 @@ paths:
             Retry-After:
               schema: { type: integer }
               description: Segundos a esperar antes de reintentar.
+          content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+        "503":
+          description: Falla de servicio/DB — reintenta.
+          content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+
+  /api/v1/reports/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: id global del reporte (uuid). Es la identidad estable; el `type` NO va en la ruta.
+        schema: { type: string, format: uuid }
+    get:
+      summary: Leer un reporte por id (abierto, sin PII)
+      operationId: getReport
+      description: |
+        Lectura abierta (sin API key). El `id` es global y único; se resuelve
+        entre las 4 vistas `public_*` (sin PII). La respuesta incluye el campo
+        `type` (discriminador) y los campos públicos de la vista correspondiente.
+        Reportes moderados (ocultos) responden 404.
+      responses:
+        "200":
+          description: El reporte (proyección pública + `type`).
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [report]
+                properties:
+                  report: { $ref: "#/components/schemas/ReportItem" }
+        "400":
+          description: id inválido (no es un uuid).
+          content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+        "404":
+          description: No existe un reporte con ese id (o está oculto).
+          content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+        "429":
+          description: Rate limit (best-effort por IP).
+          headers:
+            Retry-After:
+              schema: { type: integer }
+          content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+        "503":
+          description: Falla de servicio/DB — reintenta.
+          content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    patch:
+      summary: Modificar parcialmente un reporte (autenticado)
+      operationId: patchReport
+      description: |
+        Modificación parcial, cerrada por API key (scope `write`). Edición
+        **cross-cliente permitida** (el hub es colaborativo): cualquier socio
+        puede editar cualquier reporte; la trazabilidad la garantiza el audit log
+        inmutable y atribuible (ver `GET /{id}/history`), no prohibir la edición.
+
+        **Inmutables** (se rechaza con 400 si se intentan cambiar): `id`,
+        `source`, `external_id`. El creador original se PRESERVA; el editor solo
+        queda registrado en el audit. Solo se aceptan **campos mutables** del
+        `type` correspondiente; un campo desconocido o no modificable → 400.
+
+        El `type` en el body es opcional y solo confirma el discriminador: si se
+        envía, debe coincidir con el type real del `id` (si no → 400). El `id` de
+        la ruta determina el reporte; no se puede reclasificar por la ruta.
+
+        A diferencia del POST (que clampa valores laxos a un default), el PATCH
+        **rechaza** enums/coordenadas inválidos con 400 — una edición explícita
+        con un dato inválido es un error del cliente, no algo que adivinar.
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReportPatch"
+      responses:
+        "200":
+          description: El reporte ya modificado (proyección pública + `type`).
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [report]
+                properties:
+                  report: { $ref: "#/components/schemas/ReportItem" }
+        "400":
+          description: id inválido, body inválido, campo inmutable/no-modificable, o valor inválido.
+          content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+        "401":
+          description: API key inválida o ausente.
+          content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+        "403":
+          description: La key no tiene permiso de escritura.
+          content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+        "404":
+          description: No existe un reporte con ese id.
+          content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+        "429":
+          description: Rate limit.
+          headers:
+            Retry-After:
+              schema: { type: integer }
+          content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+        "503":
+          description: Falla de servicio/DB — reintenta.
+          content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+
+  /api/v1/reports/{id}/history:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: id global del reporte (uuid).
+        schema: { type: string, format: uuid }
+    get:
+      summary: Audit trail de un reporte (abierto, proyectado sin PII)
+      operationId: getReportHistory
+      description: |
+        Rastro de auditoría del reporte, en orden cronológico inmutable. Abierto
+        (sin API key) pero **proyectado**: solo `action`, `occurred_at`, `source`
+        y los campos PÚBLICOS que cambiaron (`from`→`to`). NUNCA expone PII
+        (`contact`/teléfonos/`manage_token`/`risk_answers`) ni forense
+        (`ip`/`user_agent`) — eso vive solo en el audit log interno. Un reporte
+        sin mutaciones por la API (orgánico/preexistente) devuelve `history` vacío.
+      responses:
+        "200":
+          description: Rastro de auditoría proyectado.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id, history]
+                properties:
+                  id: { type: string, format: uuid }
+                  history:
+                    type: array
+                    items: { $ref: "#/components/schemas/AuditEventPublic" }
+        "400":
+          description: id inválido (no es un uuid).
+          content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+        "429":
+          description: Rate limit (best-effort por IP).
+          headers:
+            Retry-After:
+              schema: { type: integer }
           content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
         "503":
           description: Falla de servicio/DB — reintenta.
@@ -406,3 +554,131 @@ components:
         source_url: { type: [string, "null"] }
         risk_level: { type: [string, "null"], enum: [ROJO, AMARILLO, NINGUNA, null] }
         risk_priority: { type: [boolean, "null"] }
+
+    # ── Un reporte por id (GET/PATCH /reports/{id}) ────────────────────────
+    # La proyección pública de la vista + el discriminador `type`. missing_person
+    # y checkin comparten CheckinPublic (se distinguen por `status`).
+    ReportItem:
+      description: "Un reporte: su `type` (discriminador) + los campos públicos de su vista (sin PII)."
+      oneOf:
+        - allOf:
+            - type: object
+              required: [type]
+              properties: { type: { type: string, enum: [missing_person, checkin] } }
+            - $ref: "#/components/schemas/CheckinPublic"
+        - allOf:
+            - type: object
+              required: [type]
+              properties: { type: { type: string, const: help_request } }
+            - $ref: "#/components/schemas/HelpRequestPublic"
+        - allOf:
+            - type: object
+              required: [type]
+              properties: { type: { type: string, const: help_offer } }
+            - $ref: "#/components/schemas/HelpOfferPublic"
+        - allOf:
+            - type: object
+              required: [type]
+              properties: { type: { type: string, const: damaged_building } }
+            - $ref: "#/components/schemas/DamagedBuildingPublic"
+
+    # ── Patch parcial (PATCH /reports/{id}) ────────────────────────────────
+    # Solo campos MUTABLES del type. `type` es opcional (confirma el discriminador).
+    # NO incluye id/source/external_id (inmutables → 400 si se envían). `contact`
+    # se acepta (se guarda en el campo privado, nunca se expone por lectura).
+    ReportPatch:
+      description: "Modificación parcial. Manda solo los campos a cambiar, válidos para el `type` del reporte."
+      oneOf:
+        - $ref: "#/components/schemas/CheckinsPatch"
+        - $ref: "#/components/schemas/HelpRequestPatch"
+        - $ref: "#/components/schemas/HelpOfferPatch"
+        - $ref: "#/components/schemas/DamagedBuildingPatch"
+
+    CheckinsPatch:
+      type: object
+      description: "Campos mutables de un checkin / missing_person."
+      minProperties: 1
+      properties:
+        type: { type: string, enum: [missing_person, checkin] }
+        name: { type: string, maxLength: 80 }
+        status: { type: string, enum: [SAFE, NEEDS_HELP, LOOKING_FOR_SOMEONE] }
+        city: { type: [string, "null"], maxLength: 80 }
+        latitude: { type: number, description: "Requiere longitude; dentro del bounding box VE o 400." }
+        longitude: { type: number }
+        message: { type: [string, "null"], maxLength: 500 }
+        found_at: { type: string, format: date-time }
+        place_name: { type: [string, "null"], maxLength: 120 }
+        photo_url: { type: [string, "null"], maxLength: 500 }
+        contact: { type: [string, "null"], maxLength: 30, description: "PRIVADO — nunca se devuelve por lectura." }
+      additionalProperties: false
+
+    HelpRequestPatch:
+      type: object
+      description: "Campos mutables de un help_request."
+      minProperties: 1
+      properties:
+        type: { type: string, const: help_request }
+        category: { type: string, enum: [medical, food, water, shelter, transportation, electricity, rescue, tools] }
+        description: { type: string, maxLength: 800 }
+        urgency: { type: string, enum: [LOW, MEDIUM, HIGH, CRITICAL] }
+        status: { type: string, enum: [OPEN, IN_PROGRESS, RESOLVED] }
+        city: { type: [string, "null"], maxLength: 80 }
+        latitude: { type: number }
+        longitude: { type: number }
+        place_name: { type: [string, "null"], maxLength: 120 }
+        contact: { type: [string, "null"], maxLength: 30, description: "PRIVADO." }
+      additionalProperties: false
+
+    HelpOfferPatch:
+      type: object
+      description: "Campos mutables de un help_offer."
+      minProperties: 1
+      properties:
+        type: { type: string, const: help_offer }
+        category: { type: string, enum: [transportation, food, shelter, medical, supplies, translation] }
+        description: { type: [string, "null"], maxLength: 800 }
+        availability: { type: [string, "null"], maxLength: 200 }
+        available: { type: boolean }
+        city: { type: [string, "null"], maxLength: 80 }
+        latitude: { type: number }
+        longitude: { type: number }
+        contact: { type: [string, "null"], maxLength: 30, description: "PRIVADO." }
+      additionalProperties: false
+
+    DamagedBuildingPatch:
+      type: object
+      description: "Campos mutables de un damaged_building."
+      minProperties: 1
+      properties:
+        type: { type: string, const: damaged_building }
+        place_name: { type: string, maxLength: 120 }
+        description: { type: [string, "null"], maxLength: 800 }
+        severity: { type: string, enum: [CRACKS, PARTIAL, COLLAPSE_RISK, COLLAPSED] }
+        status: { type: string, enum: [OPEN, IN_PROGRESS, RESOLVED] }
+        city: { type: [string, "null"], maxLength: 80 }
+        latitude: { type: number }
+        longitude: { type: number }
+        photo_url: { type: [string, "null"], maxLength: 500 }
+        contact: { type: [string, "null"], maxLength: 30, description: "PRIVADO." }
+        risk_level: { type: string, enum: [ROJO, AMARILLO, NINGUNA] }
+        risk_priority: { type: boolean }
+      additionalProperties: false
+
+    # ── Evento del audit trail (GET /reports/{id}/history) ──────────────────
+    # Proyección PÚBLICA. NUNCA incluye PII (contact/phone/manage_token/
+    # risk_answers) ni forense (ip/user_agent) — eso vive solo en el log interno.
+    AuditEventPublic:
+      type: object
+      required: [action, occurred_at, source, changes]
+      properties:
+        action: { type: string, enum: [CREATE, UPDATE, HIDE], description: "Tipo de mutación." }
+        occurred_at: { type: string, format: date-time }
+        source: { type: [string, "null"], description: "Socio que ejecutó la acción (snapshot del source)." }
+        changes:
+          type: object
+          description: "Campos PÚBLICOS que cambiaron. Clave = nombre del campo; valor = { from, to }. En CREATE, `from` es null (alta desde nada)."
+          additionalProperties:
+            type: object
+            properties:
+              from: { description: "Valor anterior (null en CREATE)." }
+              to: { description: "Valor nuevo." }

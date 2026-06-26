@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { getServerSupabase } from "@/lib/supabase/server";
 import { rateLimit, clientKey } from "@/lib/rateLimit";
 import { PUBLIC_CDN_CACHE } from "@/lib/httpCache";
+import { authenticatePartner, requestMeta } from "@/lib/partnerAuth";
+import { buildRow, INGEST_TABLES } from "@/lib/ingest.mjs";
 import {
   resolveType,
   parseLimit,
@@ -9,16 +11,25 @@ import {
   buildNextCursor,
 } from "@/lib/reports.mjs";
 
-// Puerta de LECTURA del hub central (v1). ABIERTA (sin API key) para maximizar
+// Recurso único `reports` del hub central (v1).
+//
+// GET (abajo): LECTURA de la colección. ABIERTA (sin API key) para maximizar
 // difusión; rate-limit best-effort por IP. Lee solo de las vistas `public_*`
 // (sin PII — phone_private/contact nunca se exponen), nunca de las tablas crudas.
 //
-// El `type` es el MISMO conjunto cerrado de la escritura (missing_person,
+// POST (abajo): CREAR reportes (batch). Cerrado por API key (scope `write`);
+// escribe con el service key vía RPC `ingest_reports` (upsert idempotente +
+// audit CREATE, atómico por tabla). El `source` se estampa desde la key.
+//
+// El `type` es el MISMO conjunto cerrado en lectura y escritura (missing_person,
 // checkin, help_request, help_offer, damaged_building). Paginación por cursor
 // estable: `since` (created_at|id) + orden created_at asc, desempate por id.
 
 export const runtime = "nodejs";
-export const maxDuration = 15;
+export const maxDuration = 30;
+
+const MAX_BATCH = 200;
+const MAX_BODY_BYTES = 512 * 1024; // req.json() bufferea todo el body antes del cap de batch
 
 export async function GET(req: Request) {
   // Rate-limit best-effort por IP (lectura abierta; el límite blunt-ea abuso).
@@ -82,4 +93,120 @@ export async function GET(req: Request) {
     { reports, next_cursor: buildNextCursor(reports, limit) },
     { headers: { "Cache-Control": PUBLIC_CDN_CACHE } }
   );
+}
+
+type IngestStatus = "upserted" | "rejected" | "error";
+type IngestResult = { external_id: string | null; status: IngestStatus; error?: string };
+// buildRow es JS (.mjs); tipamos su retorno acá para que el narrowing por `ok` funcione.
+type Built = { ok: true; table: string; row: Record<string, unknown> } | { ok: false; error: string };
+
+// POST /api/v1/reports — crear reportes (batch). Cerrado por API key (scope
+// `write`). Cada tabla del lote se escribe vía un RPC `ingest_reports` que hace
+// upsert idempotente por (source, external_id) + audit CREATE de cada fila, todo
+// en UNA transacción → la mutación y su rastro de auditoría son atómicos.
+export async function POST(req: Request) {
+  // Auth. Un fallo de DB en el lookup → 503 (fail closed), nunca 200/escritura.
+  let partner: { partnerId: string; source: string; scopes: string[] } | null;
+  try {
+    partner = await authenticatePartner(req.headers.get("x-api-key"));
+  } catch {
+    return NextResponse.json({ error: "Servicio no disponible." }, { status: 503 });
+  }
+  if (!partner) {
+    return NextResponse.json({ error: "API key inválida o ausente." }, { status: 401 });
+  }
+  if (!partner.scopes?.includes("write")) {
+    return NextResponse.json({ error: "La key no tiene permiso de escritura." }, { status: 403 });
+  }
+  const source = partner.source;
+
+  // Rate-limit best-effort por socio (por-lambda; el tope de batch es el backstop real).
+  const rl = rateLimit(`reports:write:${source}`, { limit: 120, windowSec: 60 });
+  if (!rl.ok) {
+    return NextResponse.json(
+      { error: "Demasiadas solicitudes." },
+      { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } }
+    );
+  }
+
+  // Guard de tamaño antes de parsear (el body se bufferea entero en memoria).
+  if (Number(req.headers.get("content-length") || 0) > MAX_BODY_BYTES) {
+    return NextResponse.json({ error: "Payload demasiado grande." }, { status: 413 });
+  }
+
+  let reports: unknown;
+  try {
+    reports = ((await req.json()) as { reports?: unknown })?.reports;
+  } catch {
+    return NextResponse.json({ error: "Cuerpo JSON inválido." }, { status: 400 });
+  }
+  if (!Array.isArray(reports)) {
+    return NextResponse.json({ error: "Falta el arreglo 'reports'." }, { status: 400 });
+  }
+  if (reports.length > MAX_BATCH) {
+    return NextResponse.json({ error: `Máximo ${MAX_BATCH} reportes por solicitud.` }, { status: 413 });
+  }
+
+  // Validar + rutear. Dedup intra-batch por external_id (el source es constante
+  // en el request): Postgres ON CONFLICT no puede tocar la misma fila objetivo
+  // dos veces en un comando, así que un external_id repetido en el lote abortaría
+  // el upsert entero. Last-wins, coherente con la intención idempotente.
+  const results: IngestResult[] = [];
+  const byTable: Record<string, Map<string, Record<string, unknown>>> = {};
+  for (const rep of reports) {
+    const built = buildRow(rep, source) as Built;
+    const extId = (rep as { external_id?: string })?.external_id ?? null;
+    if (!built.ok) {
+      results.push({ external_id: extId, status: "rejected", error: built.error });
+      continue;
+    }
+    (byTable[built.table] ??= new Map()).set(built.row.external_id as string, built.row);
+  }
+
+  // Upsert + audit por tabla en paralelo (≤4) vía RPC atómico. Cada RPC es UNA
+  // transacción (upsert idempotente + audit CREATE de cada fila): atómico por
+  // tabla → se preserva la semántica de éxito-parcial-por-tabla del endpoint.
+  const svc = getServerSupabase();
+  const meta = requestMeta(req);
+  const tables = (INGEST_TABLES as string[]).filter((t) => byTable[t]?.size);
+  const outcomes = await Promise.allSettled(
+    tables.map((t) =>
+      svc.rpc("ingest_reports", {
+        p_table: t,
+        p_rows: [...byTable[t].values()],
+        p_partner: partner!.partnerId,
+        p_source: source,
+        p_request_id: meta.requestId,
+        p_ip: meta.ip,
+        p_user_agent: meta.userAgent,
+      })
+    )
+  );
+
+  let accepted = 0;
+  let dbErrors = 0;
+  tables.forEach((t, i) => {
+    const rows = [...byTable[t].values()];
+    const outcome = outcomes[i];
+    const dbError =
+      outcome.status === "rejected"
+        ? "fallo de servicio"
+        : outcome.value.error
+          ? outcome.value.error.message || "no se pudo guardar"
+          : null;
+    if (dbError) {
+      dbErrors++;
+      for (const row of rows) results.push({ external_id: (row.external_id as string) ?? null, status: "error", error: dbError });
+    } else {
+      accepted += rows.length;
+      for (const row of rows) results.push({ external_id: (row.external_id as string) ?? null, status: "upserted" });
+    }
+  });
+
+  const rejected = results.filter((r) => r.status === "rejected").length;
+  const errored = results.filter((r) => r.status === "error").length;
+  // Falla total de DB (nada aceptado, hubo errores de DB) → 503 para que el
+  // cliente reintente. Rechazos de validación NO disparan 503 (no son retryables).
+  const httpStatus = dbErrors > 0 && accepted === 0 ? 503 : 200;
+  return NextResponse.json({ accepted, rejected, errored, results }, { status: httpStatus });
 }
