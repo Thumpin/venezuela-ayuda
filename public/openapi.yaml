@@ -78,13 +78,22 @@ info:
     resuelve el desempate por `id` que un `created_at` pelón no garantiza.
 
 servers:
-  - url: https://venezuela-ayuda.com
+  - url: https://terremoto.hazlohoy.org
 
 paths:
   /api/v1/ingest:
     post:
       summary: Publicar reportes en el hub (push autenticado)
       operationId: ingestReports
+      description: |
+        Éxito parcial dentro de un 200: el upsert es **por tabla**, así que un error
+        de DB en una tabla marca **todas** las filas de esa tabla como `status:error`,
+        mientras filas de otras tablas del mismo lote pueden quedar `upserted`. Un 200
+        no garantiza que todo se escribió. El cliente DEBE **reconciliar `results` fila
+        por fila usando `external_id`**: reintentar solo las `error` (transitorias), no
+        reintentar las `rejected` (permanentes); las `upserted` ya quedaron. Los
+        conteos `accepted`/`rejected`/`errored` agregan esos estados. El HTTP **503**
+        es **solo** cuando toda la escritura falló (nada aceptado) → reintentá el lote.
       security:
         - ApiKeyAuth: []
       requestBody:

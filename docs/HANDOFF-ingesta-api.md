@@ -14,21 +14,23 @@ no reprocesar.**
 ## 1. Modelo en una imagen
 
 ```
-Sitio socio ──(POST + x-api-key, filas canónicas)──▶  POST /api/ingest  ─┐
+Sitio socio ──(POST + x-api-key, filas canónicas)──▶  POST /api/v1/ingest  ─┐
                                                        (cerrado por key)  │ service key
                                                                           ▼
-Sitio socio ──(GET, abierto, ya existe)──▶ Supabase REST /rest/v1/public_* ──▶  Postgres
-                                                  (vistas sin teléfonos)        (tablas actuales)
+Sitio socio ──(GET, abierto, sin key)──▶ GET /api/v1/reports ────────────▶  Postgres
+                              (recomendado) │  lee vistas public_* sin tel.  (tablas actuales)
+                              (alternativa)  └─▶ Supabase REST /rest/v1/public_*
 
 Dedup fuzzy / cross-fuente  →  lo dueña OTRO equipo (fuera de esta API).
 ```
 
-- **Escritura:** solo por `POST /api/ingest`, **cerrada por API key**. No hay
+- **Escritura:** solo por `POST /api/v1/ingest`, **cerrada por API key**. No hay
   escritura anónima.
 - **Atribución:** toda fila lleva `source` = identidad del socio, **estampada
   desde la key** (no se confía en el body → no es falsificable).
-- **Lectura:** abierta, por las vistas `public_*` (Supabase REST) — sin teléfonos
-  ni contactos.
+- **Lectura:** abierta, sin key. Vía recomendada `GET /api/v1/reports` (un host,
+  cursor estable); el acceso directo a Supabase REST (`/rest/v1/public_*`) queda
+  como alternativa. Ambas leen las vistas `public_*` — sin teléfonos ni contactos.
 
 ---
 
@@ -77,7 +79,7 @@ La migración `0014` también:
   traen su `source` de origen → no se tocan.**
 - **Default a futuro**: `source` por default = `venezuela-ayuda.com` en las 4
   tablas, así los reportes orgánicos nuevos se atribuyen solos sin cambiar los
-  forms. `/api/ingest` setea el `source` del socio y sobrescribe el default.
+  forms. `/api/v1/ingest` setea el `source` del socio y sobrescribe el default.
 
 Regla de atribución: **default = Venezuela Ayuda; excepción = plataforma externa
 con origen conocido.**
@@ -86,9 +88,31 @@ con origen conocido.**
 
 ---
 
+## 2.5 Catálogo de `type` (los 5 valores → tabla/vista)
+
+`type` es un **conjunto cerrado de 5 valores** — el catálogo del hub. Es el mismo
+en escritura (`POST /api/v1/ingest`, campo del reporte) y en lectura
+(`GET /api/v1/reports`, parámetro requerido). Cada valor mapea a una tabla/vista
+concreta:
+
+| `type` | Qué es | Tabla (escritura) | Vista (lectura, sin PII) |
+|---|---|---|---|
+| `missing_person` | Persona desaparecida / se busca | `checkins` (status `LOOKING_FOR_SOMEONE`) | `public_checkins` filtrando `status=LOOKING_FOR_SOMEONE` |
+| `checkin` | "Estoy a salvo" / "necesito ayuda" | `checkins` (status `SAFE`/`NEEDS_HELP`) | `public_checkins` filtrando `status in (SAFE, NEEDS_HELP)` |
+| `help_request` | Solicitud de ayuda (médica, agua, rescate…) | `help_requests` | `public_help_requests` |
+| `help_offer` | Oferta de ayuda / recursos disponibles | `help_offers` | `public_help_offers` |
+| `damaged_building` | Edificio o estructura dañada | `damaged_reports` | `public_damaged_reports` |
+
+`missing_person` y `checkin` **comparten la tabla/vista `checkins`** y se separan
+por `status` — por eso son dos `type` distintos aunque vivan en la misma vista.
+Cualquier otro valor de `type` se rechaza (fila rechazada en escritura, 400 en
+lectura).
+
+---
+
 ## 3. Endpoints
 
-### 3.1 Escritura — `POST /api/ingest` (cerrado por API key)
+### 3.1 Escritura — `POST /api/v1/ingest` (cerrado por API key)
 
 **Headers**
 ```
@@ -117,7 +141,7 @@ tablas; no hay envelope nuevo). Máx ~200 filas por request.
     {
       "type": "help_request",             // → tabla help_requests
       "external_id": "cruzroja:req-77",
-      "category": "medical",              // medical|food|water|shelter|transportation|electricity|rescue
+      "category": "medical",              // medical|food|water|shelter|transportation|electricity|rescue|tools
       "urgency": "CRITICAL",              // LOW|MEDIUM|HIGH|CRITICAL
       "description": "Persona atrapada, sin oxígeno",
       "city": "La Guaira", "latitude": 10.6, "longitude": -66.93,
@@ -162,8 +186,9 @@ Reglas:
 **Respuesta `200`**
 ```jsonc
 {
-  "accepted": 4,
-  "rejected": 1,
+  "accepted": 4,                          // filas escritas (upserted)
+  "rejected": 1,                          // rechazos de validación (permanentes — no reintentar)
+  "errored": 0,                           // fallos de DB (transitorios — reintentar esas filas)
   "results": [
     { "external_id": "cruzroja:1023", "status": "upserted" },
     { "external_id": "cruzroja:req-77", "status": "upserted" },
@@ -174,6 +199,20 @@ Reglas:
 }
 ```
 
+**Éxito parcial dentro de un 200 — el cliente DEBE reconciliar fila por fila.**
+El upsert es **por tabla** (un round-trip por tabla). Por eso un error de DB en
+**una** tabla marca **todas** las filas de esa tabla como `status:error`, mientras
+las filas de **otras** tablas del mismo lote pueden quedar `upserted`. O sea: un
+mismo lote puede salir con parte `upserted` y parte `error` — y aun así el HTTP es
+**200**. No asumas que 200 = todo escrito.
+
+- Reconciliá `results` **fila por fila usando tu `external_id`**: reintenta solo
+  las `error` (transitorias); las `rejected` son permanentes (no reintentar, corregí
+  el dato); las `upserted` ya quedaron.
+- `accepted` / `rejected` / `errored` son los conteos agregados de esos tres estados.
+- El HTTP **503** se devuelve **solo cuando toda la escritura falló** (nada
+  aceptado) — ahí reintentá el lote completo.
+
 **Códigos de error**
 | Código | Causa |
 |---|---|
@@ -182,10 +221,40 @@ Reglas:
 | 400 | body inválido |
 | 413 | lote excede el tope |
 | 429 | rate limit (incluye `Retry-After`) |
+| 503 | toda la escritura falló (nada aceptado) — reintentá el lote completo |
 
-### 3.2 Lectura — `GET /rest/v1/public_*` (ya existe, abierto)
+### 3.2 Lectura — `GET /api/v1/reports` (vía recomendada, abierto, sin PII)
 
-Es el endpoint de Supabase REST que el sitio ya usa. Sin datos privados.
+Lectura **abierta, sin API key** (para maximizar difusión). Lee de las vistas
+`public_*` (nunca de las tablas crudas) → `phone_private`/`contact` **nunca** se
+exponen. Un solo host, sin manejar la publishable key, con cursor estable.
+
+```
+GET /api/v1/reports?type=help_request&limit=100
+GET /api/v1/reports?type=checkin&city=Caracas&since=2026-06-26T10:00:00Z|<uuid>
+```
+
+Parámetros:
+
+| Param | Req | Nota |
+|---|---|---|
+| `type` | **sí** | uno de los 5 del catálogo (§2.5). `missing_person`/`checkin` salen de la misma vista, separados por status. Inválido/ausente → 400 |
+| `since` | no | cursor de la página anterior (`next_cursor`): `created_at|id`. Trae filas posteriores. También acepta un timestamp ISO pelón |
+| `limit` | no | default 100, máx 500. Inválido → default |
+| `city` | no | filtro parcial por ciudad (case-insensitive, substring) |
+
+**Paginación por cursor estable:** orden `created_at` asc con desempate por `id`.
+La respuesta trae `next_cursor`; pasalo como `since` para la siguiente página.
+`next_cursor` es `null` cuando ya no hay más filas.
+
+```jsonc
+{ "reports": [ /* filas de la vista del type, sin PII */ ], "next_cursor": "2026-06-26T10:00:00Z|<uuid>" }
+```
+
+#### Alternativa: acceso directo a Supabase REST (`GET /rest/v1/public_*`)
+
+Sigue disponible para quien lo prefiera, pero `GET /api/v1/reports` es la vía
+recomendada (un host, sin publishable key, cursor estable). El acceso directo:
 
 ```
 GET {SUPABASE_URL}/rest/v1/public_help_requests?select=*&order=created_at.desc
@@ -227,7 +296,8 @@ Para integrar a un socio: el admin lo da de alta en el panel y le entrega su key
 ## 5. Documentación que se sirve desde el sitio
 
 - **OpenAPI 3.1**: `public/openapi.yaml`, servido crudo en `GET /api/openapi`.
-  Describe `POST /api/ingest` y referencia la lectura `public_*`.
+  Describe `POST /api/v1/ingest` y `GET /api/v1/reports`, y referencia el acceso
+  directo a `public_*` como alternativa.
 - **Swagger / Scalar UI**: página `/docs` que renderiza el spec — para que un
   integrador lea el contrato y pruebe llamadas.
 
@@ -236,12 +306,15 @@ Para integrar a un socio: el admin lo da de alta en el panel y le entrega su key
 ## 6. Fuera de alcance (para coordinar con el otro equipo)
 
 - **Dedup fuzzy / cross-fuente** (mismo "Juan Pérez" desde dos socios) lo dueña
-  **otro equipo**. Nosotros solo dejamos cada fila estampada con `source` y
-  `dedup_key` (`fuzzyKey(name)`) — el insumo que ellos necesitan.
-- ⚠️ **Handoff a coordinar:** hoy el único proceso de dedup corre pegado al
-  workflow de pull (`.github/workflows/ingest.yml` → `ingest.mjs --dedup`). Cuando
-  retiremos el pull, hay que confirmar que el equipo de dedup ya corre el suyo
-  sobre la misma DB, o acordar fecha de corte, para no dejar ventana sin dedup.
+  **otro equipo**. La ingesta `/api/v1/ingest` **no hace dedup**: solo idempotencia
+  exacta por `(source, external_id)`. Nosotros dejamos cada fila estampada con
+  `source` y `dedup_key` (`fuzzyKey(name)`) — el insumo que ellos necesitan.
+- **El pull (scrape de sitios hermanos) se retiró → el hub es push-only.** PERO el
+  **cron de dedup cross-fuente se conserva**: corre cada hora vía el workflow
+  `.github/workflows/ingest.yml` (ahora llamado "Dedup cleanup"), que ejecuta
+  `node scripts/ingest.mjs --dedup`. Se quitó el paso de scrape; el cron de dedup
+  **no se borra**. Sigue corriendo hasta que un proceso de dedup dedicado de otro
+  equipo lo reemplace — ahí se coordina el corte para no dejar ventana sin dedup.
 
 ---
 
@@ -251,12 +324,14 @@ Para integrar a un socio: el admin lo da de alta en el panel y le entrega su key
 |---|---|---|
 | 1 | Migración `0014` — `api_partners` + columnas en `help_offers` + índices únicos | DB |
 | 2 | Auth por API key (hash + lookup) | backend |
-| 3 | `POST /api/ingest` (cerrado por key, upsert idempotente, atribución `source`) | endpoint |
-| 4 | OpenAPI + `/docs` (Swagger) | docs |
-| 5 | Gestión de colaboradores + keys en el panel admin existente (`/admin/colaboradores`) | admin UI |
-| 6 | Retirar el pull (`ingest.mjs` + workflow) | cleanup |
+| 3 | `POST /api/v1/ingest` (cerrado por key, upsert idempotente, atribución `source`) | endpoint |
+| 4 | `GET /api/v1/reports` (lectura abierta sin PII, cursor estable, vía recomendada) | endpoint |
+| 5 | OpenAPI + `/docs` (Swagger) | docs |
+| 6 | Gestión de colaboradores + keys en el panel admin existente (`/admin/colaboradores`) | admin UI |
+| 7 | Quitar el paso de scrape (pull) — **conservar** el cron de dedup en `.github/workflows/ingest.yml` ("Dedup cleanup") | cleanup |
 
-Lectura: **se reusa el endpoint existente** (`public_*` por Supabase REST), no se
-construye uno nuevo.
+Lectura: la vía recomendada es `GET /api/v1/reports` (entregable #4); el acceso
+directo a las vistas `public_*` por Supabase REST queda como alternativa. Ambas
+leen las mismas vistas, sin PII.
 
 Plan técnico completo: `docs/plans/2026-06-26-001-feat-data-exchange-api-plan.md`.
