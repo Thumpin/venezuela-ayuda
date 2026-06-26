@@ -228,3 +228,60 @@ export async function removeAdmin(email: string): Promise<Result> {
   revalidatePath("/admin/admins");
   return { ok: true };
 }
+
+// --- Collection centers --------------------------------------------------------
+export async function verifyCenter(id: string, verified: boolean): Promise<Result> {
+  try { await requireAdmin(); } catch { return { ok: false, error: "No autorizado." }; }
+  if (!UUID_RE.test(id)) return { ok: false, error: "Id inválido." };
+  if (!isSupabaseConfigured() && process.env.NODE_ENV === "development") {
+    await new Promise((r) => setTimeout(r, 200));
+    return { ok: true };
+  }
+  const svc = getServerSupabase();
+  const { error } = await svc.from("collection_centers").update({ verified }).eq("id", id);
+  if (error) return { ok: false, error: "No se pudo actualizar." };
+  revalidatePath("/mapa");
+  return { ok: true };
+}
+
+export async function setCenterHidden(id: string, hidden: boolean): Promise<Result> {
+  try { await requireAdmin(); } catch { return { ok: false, error: "No autorizado." }; }
+  if (!UUID_RE.test(id)) return { ok: false, error: "Id inválido." };
+  if (!isSupabaseConfigured() && process.env.NODE_ENV === "development") {
+    await new Promise((r) => setTimeout(r, 200));
+    return { ok: true };
+  }
+  const svc = getServerSupabase();
+  const { error } = await svc.from("collection_centers").update({ hidden }).eq("id", id);
+  if (error) return { ok: false, error: "No se pudo actualizar." };
+  revalidatePath("/mapa");
+  return { ok: true };
+}
+
+export async function deleteCenter(id: string): Promise<Result> {
+  try { await requireAdmin(); } catch { return { ok: false, error: "No autorizado." }; }
+  if (!UUID_RE.test(id)) return { ok: false, error: "Id inválido." };
+  if (!isSupabaseConfigured() && process.env.NODE_ENV === "development") {
+    await new Promise((r) => setTimeout(r, 200));
+    return { ok: true };
+  }
+  const svc = getServerSupabase();
+  const { error } = await svc.from("collection_centers").delete().eq("id", id);
+  if (error) return { ok: false, error: "No se pudo eliminar." };
+  revalidatePath("/mapa");
+  return { ok: true };
+}
+
+export async function updateCenter(id: string, fields: Record<string, unknown>): Promise<Result> {
+  try { await requireAdmin(); } catch { return { ok: false, error: "No autorizado." }; }
+  if (!UUID_RE.test(id)) return { ok: false, error: "Id inválido." };
+  if (!isSupabaseConfigured() && process.env.NODE_ENV === "development") {
+    await new Promise((r) => setTimeout(r, 200));
+    return { ok: true };
+  }
+  const svc = getServerSupabase();
+  const { error } = await svc.from("collection_centers").update(fields).eq("id", id);
+  if (error) return { ok: false, error: "No se pudo actualizar." };
+  revalidatePath("/mapa");
+  return { ok: true };
+}

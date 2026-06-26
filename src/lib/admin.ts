@@ -46,6 +46,42 @@ export async function listAdmins(): Promise<AdminRow[]> {
   return (data ?? []) as AdminRow[];
 }
 
+export interface AdminCenterRow {
+  id: string;
+  name: string;
+  country: string;
+  state: string | null;
+  city: string | null;
+  address: string | null;
+  resources: string | null;
+  organizers: string | null;
+  contact: string | null;
+  website: string | null;
+  can_ship_to_venezuela: boolean | null;
+  volunteers_count: number | null;
+  needs_volunteers: boolean | null;
+  needs: string[];
+  verified: boolean;
+  hidden: boolean;
+  source: string;
+  created_at: string;
+}
+
+export async function listCollectionCentersAdmin(): Promise<AdminCenterRow[]> {
+  if (!isSupabaseConfigured()) {
+    if (process.env.NODE_ENV === "development") return devCollectionCenters();
+    return [];
+  }
+  const svc = getServerSupabase();
+  const { data } = await svc
+    .from("collection_centers")
+    .select("id,name,country,state,city,address,resources,organizers,contact,website,can_ship_to_venezuela,volunteers_count,needs_volunteers,needs,verified,hidden,source,created_at")
+    .order("verified", { ascending: true })
+    .order("created_at", { ascending: false })
+    .limit(300);
+  return (data ?? []) as AdminCenterRow[];
+}
+
 export interface AdminDamagedRow {
   id: string;
   place_name: string;
@@ -234,6 +270,96 @@ function devDamagedReports(): AdminDamagedRow[] {
     { id: "dm-6", place_name: "Bloque 4 – 23 de Enero", severity: "COLLAPSE_RISK", city: "Caracas", description: "Losas superiores comprometidas. Evaluación urgente.", status: "OPEN", hidden: true, verified_at: null, created_at: ago(1) },
     { id: "dm-7", place_name: "Edificio Torreón – Calle Sucre", severity: "CRACKS", city: "La Guaira", description: "Grietas finas en paredes interiores.", status: "OPEN", hidden: false, verified_at: null, created_at: ago(4) },
     { id: "dm-8", place_name: "Residencias Río Chico – Calle 5", severity: "PARTIAL", city: "Los Teques", description: "Muro perimetral colapsado. Riesgo bajo.", status: "OPEN", hidden: false, verified_at: ago(2), created_at: ago(6) },
+  ];
+}
+
+function devCollectionCenters(): AdminCenterRow[] {
+  const ago = (d: number) => new Date(Date.now() - d * 86400000).toISOString();
+  return [
+    {
+      id: "dc-1", name: "Centro de acopio · Barinas", country: "Venezuela", state: "Barinas", city: "Barinas",
+      address: "Av. Marqués del Pumar, diagonal al Hotel Comercio, Casa Azul. Barinas. 8:00am–6:00pm · Contacto 0412 569.33.30",
+      resources: "agua potable, alimentos no perecederos, insumos médicos, ropa y abrigos.",
+      organizers: null, contact: "0412 569.33.30", website: null,
+      can_ship_to_venezuela: null, volunteers_count: null, needs_volunteers: false, needs: ["centro-de-acopio"],
+      verified: true, hidden: false, source: "seed", created_at: ago(0.12),
+    },
+    {
+      id: "dc-2", name: "Centro de acopio Bogotá", country: "Colombia", state: null, city: "Bogotá",
+      address: "Calle 104 #54-31, Barrio Pasadena, en Suba.",
+      resources: null, organizers: null, contact: null, website: null,
+      can_ship_to_venezuela: null, volunteers_count: null, needs_volunteers: false, needs: ["centro-de-acopio"],
+      verified: true, hidden: false, source: "seed", created_at: ago(0.12),
+    },
+    {
+      id: "dc-3", name: "Centro de acopio Santa Marta", country: "Colombia", state: null, city: "Santa Marta",
+      address: "Parque La Tenería, Carrera 2 con 1D36, cerca de Playa Los Cocos.",
+      resources: null, organizers: null, contact: null, website: null,
+      can_ship_to_venezuela: null, volunteers_count: null, needs_volunteers: false, needs: ["centro-de-acopio"],
+      verified: true, hidden: false, source: "seed", created_at: ago(0.12),
+    },
+    {
+      id: "dc-4", name: "Centro de acopio Bucaramanga", country: "Colombia", state: null, city: "Bucaramanga",
+      address: "Calle 18 #21-52 San Francisco, Bucaramanga Santander, diagonal a la Iglesia San Francisco.",
+      resources: null, organizers: null, contact: null, website: null,
+      can_ship_to_venezuela: null, volunteers_count: null, needs_volunteers: false, needs: ["centro-de-acopio"],
+      verified: true, hidden: false, source: "seed", created_at: ago(0.12),
+    },
+    {
+      id: "dc-5", name: "Centro de acopio Cali", country: "Colombia", state: null, city: "Cali",
+      address: "Carrera 28 B3 #72S-32 Comuneros II (cerca Troncal Unida).",
+      resources: null, organizers: null, contact: null, website: null,
+      can_ship_to_venezuela: null, volunteers_count: null, needs_volunteers: false, needs: ["centro-de-acopio"],
+      verified: true, hidden: false, source: "seed", created_at: ago(0.12),
+    },
+    {
+      id: "dc-6", name: "Centro de acopio · Miranda", country: "Venezuela", state: "Miranda", city: "Altamira",
+      address: "4ta avenida de Altamira, entre 9na y 10ma transversal; quinta El Bejucal.",
+      resources: "agua potable, alimentos no perecederos, insumos médicos, ropa y abrigos.",
+      organizers: null, contact: null, website: null,
+      can_ship_to_venezuela: null, volunteers_count: null, needs_volunteers: false, needs: ["centro-de-acopio"],
+      verified: true, hidden: false, source: "seed", created_at: ago(0.12),
+    },
+    {
+      id: "dc-7", name: "Centro de acopio · Aragua", country: "Venezuela", state: "Aragua", city: "Maracay",
+      address: "Av. 19 de Abril, C.C. La Capilla, piso 1, local 21. Maracay.",
+      resources: "agua potable, alimentos no perecederos, insumos médicos, ropa y abrigos.",
+      organizers: null, contact: null, website: null,
+      can_ship_to_venezuela: null, volunteers_count: null, needs_volunteers: false, needs: ["centro-de-acopio"],
+      verified: true, hidden: false, source: "seed", created_at: ago(0.12),
+    },
+    {
+      id: "dc-8", name: "Centro de acopio · Carabobo", country: "Venezuela", state: "Carabobo", city: "Valencia",
+      address: "Av. Monseñor Adams, El Viñedo. Edificio Talislandia, mezzanina. Valencia.",
+      resources: "agua potable, alimentos no perecederos, insumos médicos, ropa y abrigos.",
+      organizers: null, contact: null, website: null,
+      can_ship_to_venezuela: null, volunteers_count: null, needs_volunteers: false, needs: ["centro-de-acopio"],
+      verified: true, hidden: false, source: "seed", created_at: ago(0.12),
+    },
+    {
+      id: "dc-9", name: "Mister Pepito", country: "Brasil", state: "Roraima", city: "Boa Vista",
+      address: "Avenida Venezuela, 1390 - Mecejana (Frente ao Supermecado Goiana)",
+      resources: "Agua potable, Alimentos não perecederos (enlatados que no exigen cocimiento), Kits de primeros socorros (gazas, vendas, antisépticos), Artículos de higiene personal (papel higiénico, jabón, cepillo de dientes), Cobertores y sábanas limpias",
+      organizers: "Mister Pepito", contact: null, website: null,
+      can_ship_to_venezuela: true, volunteers_count: null, needs_volunteers: false, needs: ["centro-de-acopio"],
+      verified: false, hidden: false, source: "user", created_at: ago(0.04),
+    },
+    {
+      id: "dc-10", name: "Restaurante La Pozoleria", country: "México", state: "Chihuahua", city: "Chihuahua",
+      address: "Medicina #911",
+      resources: "Agua, alimentos no perecederos, insumos medicos básicos para curaciones, Insumos médicos: analgésicos y antipiréticos (paracetamol, ibuprofeno), antisépticos, material de curación (gasas, vendas, apósitos, algodón), suero salino, cremas antibióticas, sales de rehidratación, antidiarreicos, guantes, cubrebocas, gel antibacterial y termómetros",
+      organizers: "Luis Angel Alvarado", contact: "lapozoleria.cuu@hotmail.com", website: null,
+      can_ship_to_venezuela: null, volunteers_count: 5, needs_volunteers: false, needs: ["centro-de-acopio"],
+      verified: false, hidden: false, source: "user", created_at: ago(0.08),
+    },
+    {
+      id: "dc-11", name: "Comunidad de Venezolanos en Espírito Santo", country: "Brasil", state: "Espírito Santo", city: "Vila Velha",
+      address: "Indefinido",
+      resources: "Alimentos no perecederos, ropas, mantas, productos de higiene personal",
+      organizers: "Gabriela Reina y More Fernandez", contact: "+552799816-5560 / +5527997211829", website: null,
+      can_ship_to_venezuela: null, volunteers_count: 10, needs_volunteers: false, needs: ["centro-de-acopio"],
+      verified: false, hidden: false, source: "user", created_at: ago(0.08),
+    },
   ];
 }
 

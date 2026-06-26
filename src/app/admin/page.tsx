@@ -8,6 +8,7 @@ import {
   listMergeCandidates,
   listReviewedCandidates,
   listModerationItems,
+  listCollectionCentersAdmin,
 } from "@/lib/admin";
 import { adminSignOut } from "@/app/admin/actions";
 
@@ -27,11 +28,12 @@ export default async function AdminPage() {
     );
   }
 
-  const [damaged, mod, pending, reviewed] = await Promise.all([
+  const [damaged, mod, pending, reviewed, centers] = await Promise.all([
     listDamagedReportsAdmin(),
     listModerationItems(),
     listMergeCandidates(50, email),
     listReviewedCandidates(100),
+    listCollectionCentersAdmin(),
   ]);
 
   return (
@@ -62,8 +64,8 @@ export default async function AdminPage() {
           </div>
         </div>
 
-        {/* Summary cards */}
-        <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        {/* Summary cards - shrink-proof */}
+        <div className="mt-4 shrink-0 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <Link href="/admin/duplicados"
             className="group rounded-2xl border border-[#e6ecf2] bg-white p-4 transition hover:border-[#8190a0] hover:shadow-sm">
             <div className="flex items-center gap-3">
@@ -113,9 +115,9 @@ export default async function AdminPage() {
           </Link>
         </div>
 
-        {/* Master-detail dashboard - fixed height, independent scroll */}
-        <div className="mt-4 flex-1 min-h-0" style={{ height: "calc(100vh - 260px)" }}>
-          <AdminDashboard pending={pending} reviewed={reviewed} damaged={damaged} mod={mod} />
+        {/* Master-detail dashboard - fills remaining space, independent column scroll */}
+        <div className="mt-4 flex-1 min-h-0">
+          <AdminDashboard pending={pending} reviewed={reviewed} damaged={damaged} mod={mod} centers={centers} />
         </div>
       </main>
     </>

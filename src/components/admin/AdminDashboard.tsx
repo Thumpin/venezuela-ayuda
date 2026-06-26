@@ -3,7 +3,7 @@
 import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { timeAgo } from "@/lib/format";
-import type { MergeCandidate, ReviewedCandidate, AdminDamagedRow, ModerationItem } from "@/lib/admin";
+import type { MergeCandidate, ReviewedCandidate, AdminDamagedRow, AdminCenterRow, ModerationItem } from "@/lib/admin";
 
 const TIER_BADGE: Record<string, { text: string; cls: string }> = {
   HARD: { text: "Casi seguro", cls: "bg-emerald-100 text-emerald-700" },
@@ -11,8 +11,8 @@ const TIER_BADGE: Record<string, { text: string; cls: string }> = {
   REVIEW: { text: "Revisar", cls: "bg-slate-200 text-slate-600" },
 };
 
-function SelectableRow({ id, type, label, subtitle, badge, children, selected }: {
-  id: string; type: string; label: string; subtitle?: string; badge?: { text: string; cls: string }; children?: React.ReactNode; selected: boolean;
+function SelectableRow({ id, type, label, subtitle, badge, selected }: {
+  id: string; type: string; label: string; subtitle?: string; badge?: { text: string; cls: string }; selected: boolean;
 }) {
   const router = useRouter();
   const sel = `${type}:${id}`;
@@ -25,7 +25,7 @@ function SelectableRow({ id, type, label, subtitle, badge, children, selected }:
 
   return (
     <button type="button" onClick={onClick}
-      className={`w-full rounded-xl border px-3 py-2.5 text-left transition ${
+      className={`w-full shrink-0 rounded-xl border px-3 py-2.5 text-left transition ${
         selected
           ? "border-[#14212e] bg-[#14212e]/5 shadow-sm"
           : "border-[#e6ecf2] bg-white hover:border-[#8190a0] hover:shadow-sm"
@@ -37,13 +37,12 @@ function SelectableRow({ id, type, label, subtitle, badge, children, selected }:
         </div>
         {badge && <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold ${badge.cls}`}>{badge.text}</span>}
       </div>
-      {children}
     </button>
   );
 }
 
-function DetailPanel({ sel, pending, damaged, mod }: {
-  sel: string; pending: MergeCandidate[]; damaged: AdminDamagedRow[]; mod: ModerationItem[];
+function DetailPanel({ sel, pending, damaged, mod, centers }: {
+  sel: string; pending: MergeCandidate[]; damaged: AdminDamagedRow[]; mod: ModerationItem[]; centers: AdminCenterRow[];
 }) {
   const [type, id] = sel.split(":");
 
@@ -61,7 +60,6 @@ function DetailPanel({ sel, pending, damaged, mod }: {
           <span className="font-medium text-amber-800">Razón: </span>
           <span className="text-amber-700">{c.reason}</span>
         </div>
-        {/* Side-by-side */}
         <div className="flex flex-col gap-4 sm:flex-row">
           {[c.keep, c.dup].map((s, i) => (
             <div key={i} className="min-w-0 flex-1 rounded-xl border border-[#e6ecf2] bg-slate-50 p-3">
@@ -118,12 +116,38 @@ function DetailPanel({ sel, pending, damaged, mod }: {
     );
   }
 
+  if (type === "center") {
+    const c = centers.find((x) => x.id === id);
+    if (!c) return <EmptyDetail />;
+    const place = [c.city, c.state, c.country].filter(Boolean).join(" · ");
+    const ship = c.can_ship_to_venezuela === true ? "Sí" : c.can_ship_to_venezuela === false ? "No" : "No indica";
+    return (
+      <div className="rounded-2xl border border-[#e6ecf2] bg-white p-5">
+        <h3 className="text-lg font-bold text-[#14212e]">{c.name}</h3>
+        <p className="mt-1 text-xs text-[#8190a0]">{place} · {c.source === "user" ? "postulado" : "semilla"} · {timeAgo(c.created_at)}</p>
+        {c.address && <p className="mt-2 text-sm text-[#5b6b7b]">📍 {c.address}</p>}
+        {c.resources && <p className="mt-2 text-sm text-[#5b6b7b]"><span className="font-medium text-[#14212e]">Reciben:</span> {c.resources}</p>}
+        <dl className="mt-3 space-y-1 text-xs text-[#5b6b7b]">
+          {c.organizers && <div><span className="font-medium text-[#14212e]">Organizadores:</span> {c.organizers}</div>}
+          {c.contact && <div><span className="font-medium text-[#14212e]">Contacto:</span> {c.contact}</div>}
+          <div><span className="font-medium text-[#14212e]">¿Envía a Venezuela?</span> {ship}</div>
+          <div><span className="font-medium text-[#14212e]">Voluntarios:</span> {c.volunteers_count ?? "—"}{c.needs_volunteers ? " · necesita más" : ""}</div>
+        </dl>
+        <div className="mt-3 flex flex-wrap gap-1.5">
+          {!c.verified && <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-700">⏳ Pendiente</span>}
+          {c.verified && <span className="rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-semibold text-green-700">✅ Verificado</span>}
+          {c.hidden && <span className="rounded-full bg-slate-200 px-2.5 py-0.5 text-xs font-semibold text-slate-600">Oculto</span>}
+        </div>
+      </div>
+    );
+  }
+
   return <EmptyDetail />;
 }
 
 function EmptyDetail() {
   return (
-    <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-[#e6ecf2] bg-white p-8 text-center">
+    <div className="flex flex-1 flex-col items-center justify-center rounded-2xl border border-dashed border-[#e6ecf2] bg-white p-8 text-center">
       <span className="text-2xl text-[#8190a0]">👆</span>
       <p className="mt-3 text-sm font-medium text-[#8190a0]">Selecciona un elemento</p>
       <p className="mt-1 text-xs text-[#8190a0]">Haz clic en cualquier fila para ver los detalles aquí.</p>
@@ -131,25 +155,26 @@ function EmptyDetail() {
   );
 }
 
-export default function AdminDashboard({ pending, reviewed, damaged, mod }: {
-  pending: MergeCandidate[]; reviewed: ReviewedCandidate[]; damaged: AdminDamagedRow[]; mod: ModerationItem[];
+export default function AdminDashboard({ pending, reviewed, damaged, mod, centers }: {
+  pending: MergeCandidate[]; reviewed: ReviewedCandidate[]; damaged: AdminDamagedRow[]; mod: ModerationItem[]; centers: AdminCenterRow[];
 }) {
   const sp = useSearchParams();
   const sel = sp.get("sel") || "";
+  const pendingCenters = centers.filter((c) => !c.verified).length;
 
   return (
-    <div className="grid h-full gap-6 overflow-hidden lg:grid-cols-3">
+    <div className="flex h-full gap-6">
       {/* Left column: lists */}
-      <div className="space-y-4 overflow-y-auto lg:col-span-1" style={{ scrollbarGutter: "stable" }}>
+      <div className="flex w-80 shrink-0 flex-col gap-4 overflow-y-auto" style={{ scrollbarGutter: "stable" }}>
         {/* Duplicados */}
         <section>
-          <div className="sticky -top-1 z-10 mb-2 flex items-center justify-between bg-[#f7f8fa] py-1">
+          <div className="mb-2 flex items-center justify-between">
             <h2 className="flex items-center gap-1.5 text-sm font-bold text-[#14212e]">
               <span className="text-base">🔁</span> Duplicados
             </h2>
             <span className="text-xs text-[#8190a0]">{pending.length} pendientes</span>
           </div>
-          <div className="space-y-1.5">
+          <div className="flex flex-col gap-1.5">
             {pending.length === 0 ? (
               <p className="rounded-xl border border-[#e6ecf2] bg-white px-3 py-4 text-xs text-[#8190a0]">Sin pendientes.</p>
             ) : (
@@ -171,15 +196,42 @@ export default function AdminDashboard({ pending, reviewed, damaged, mod }: {
           </div>
         </section>
 
+        {/* Centros de acopio */}
+        <section>
+          <div className="mb-2 flex items-center justify-between">
+            <h2 className="flex items-center gap-1.5 text-sm font-bold text-[#14212e]">
+              <span className="text-base">📦</span> Centros de acopio
+            </h2>
+            {pendingCenters > 0 && (
+              <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-bold text-amber-700">{pendingCenters} pendiente{pendingCenters === 1 ? "" : "s"}</span>
+            )}
+          </div>
+          <div className="flex flex-col gap-1.5">
+            {centers.length === 0 ? (
+              <p className="rounded-xl border border-[#e6ecf2] bg-white px-3 py-4 text-xs text-[#8190a0]">Sin centros.</p>
+            ) : (
+              centers.slice(0, 6).map((c) => {
+                const place = [c.city, c.state, c.country].filter(Boolean).join(" · ");
+                return (
+                  <SelectableRow key={c.id} id={c.id} type="center"
+                    label={c.name}
+                    subtitle={`${place} · ${c.verified ? "✅" : "⏳"}`}
+                    selected={sel === `center:${c.id}`} />
+                );
+              })
+            )}
+          </div>
+        </section>
+
         {/* Edificios dañados */}
         <section>
-          <div className="sticky -top-1 z-10 mb-2 flex items-center justify-between bg-[#f7f8fa] py-1">
+          <div className="mb-2 flex items-center justify-between">
             <h2 className="flex items-center gap-1.5 text-sm font-bold text-[#14212e]">
               <span className="text-base">🏚️</span> Edificios
             </h2>
             <span className="text-xs text-[#8190a0]">{damaged.length} reportes</span>
           </div>
-          <div className="space-y-1.5">
+          <div className="flex flex-col gap-1.5">
             {damaged.length === 0 ? (
               <p className="rounded-xl border border-[#e6ecf2] bg-white px-3 py-4 text-xs text-[#8190a0]">Sin reportes.</p>
             ) : (
@@ -195,13 +247,13 @@ export default function AdminDashboard({ pending, reviewed, damaged, mod }: {
 
         {/* Moderación */}
         <section>
-          <div className="sticky -top-1 z-10 mb-2 flex items-center justify-between bg-[#f7f8fa] py-1">
+          <div className="mb-2 flex items-center justify-between">
             <h2 className="flex items-center gap-1.5 text-sm font-bold text-[#14212e]">
               <span className="text-base">⚡</span> Moderación
             </h2>
             <span className="text-xs text-[#8190a0]">{mod.length} pendientes</span>
           </div>
-          <div className="space-y-1.5">
+          <div className="flex flex-col gap-1.5">
             {mod.length === 0 ? (
               <p className="rounded-xl border border-[#e6ecf2] bg-white px-3 py-4 text-xs text-[#8190a0]">Sin pendientes.</p>
             ) : (
@@ -222,9 +274,11 @@ export default function AdminDashboard({ pending, reviewed, damaged, mod }: {
         </Link>
       </div>
 
-      {/* Right column: detail */}
-      <div className="overflow-y-auto lg:col-span-2" style={{ scrollbarGutter: "stable" }}>
-        <DetailPanel sel={sel} pending={pending} damaged={damaged} mod={mod} />
+      {/* Right column: detail - fills remaining space, scrolls independently */}
+      <div className="flex min-w-0 flex-1 flex-col" style={{ scrollbarGutter: "stable", overflow: "hidden" }}>
+        <div className="flex-1 min-h-0 overflow-y-auto">
+          <DetailPanel sel={sel} pending={pending} damaged={damaged} mod={mod} centers={centers} />
+        </div>
       </div>
     </div>
   );
