@@ -42,6 +42,18 @@ alter table help_offers add column if not exists source text;
 alter table help_offers add column if not exists source_url text;
 alter table help_offers add column if not exists external_id text;
 
+-- Recrear la vista pública de ofertas para exponer source + source_url, igual
+-- que ya hacen public_checkins / public_help_requests / public_damaged_reports
+-- (0007/0012). Sin esto, la lectura de ofertas no traería atribución y la
+-- columna source quedaría inservible para el consumidor. Mantiene el filtro de
+-- moderación (hidden = false) y NO expone contact (privado).
+create or replace view public_help_offers as
+  select id, category, description, city, latitude, longitude, availability,
+         available, created_at, source, source_url
+  from help_offers where hidden = false;
+
+grant select on public_help_offers to anon, authenticated;
+
 -- Atribución de reportes existentes ----------------------------------------
 -- Los orgánicos (forms del sitio) no tienen source → se asignan a nosotros.
 -- Los scrapeados ya traen su source de origen → el WHERE los respeta.
