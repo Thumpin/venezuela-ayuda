@@ -59,6 +59,12 @@ test("select nunca incluye columnas privadas", () => {
   }
 });
 
+test("damaged: expone verified_at pero NUNCA verified_by (email del admin)", () => {
+  const cols = VIEW_COLUMNS.public_damaged_reports;
+  assert.ok(cols.includes("verified_at"), "debe conservar verified_at como señal");
+  assert.ok(!cols.includes("verified_by"), "verified_by es email interno, no debe exponerse");
+});
+
 test("help_offer select incluye source y source_url (vista recreada en 0014)", () => {
   assert.ok(VIEW_COLUMNS.public_help_offers.includes("source"));
   assert.ok(VIEW_COLUMNS.public_help_offers.includes("source_url"));

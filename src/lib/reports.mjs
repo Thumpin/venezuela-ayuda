@@ -24,7 +24,10 @@ export const VIEW_COLUMNS = {
   public_checkins: ["id", "name", "status", "city", "latitude", "longitude", "message", "photo_url", "created_at", "found_at", "place_name", "source", "source_url"],
   public_help_requests: ["id", "category", "description", "urgency", "city", "latitude", "longitude", "status", "created_at", "place_name", "items", "source", "source_url"],
   public_help_offers: ["id", "category", "description", "city", "latitude", "longitude", "availability", "available", "created_at", "source", "source_url"],
-  public_damaged_reports: ["id", "place_name", "description", "severity", "city", "latitude", "longitude", "photo_url", "status", "created_at", "verified_at", "verified_by", "source", "source_url", "risk_level", "risk_priority"],
+  // verified_at señala que el reporte fue verificado; verified_by se OMITE a
+  // propósito — es el email del admin verificador (interno), no debe salir al API
+  // público ni al /history de terceros.
+  public_damaged_reports: ["id", "place_name", "description", "severity", "city", "latitude", "longitude", "photo_url", "status", "created_at", "verified_at", "source", "source_url", "risk_level", "risk_priority"],
 };
 
 export const DEFAULT_LIMIT = 100;

@@ -88,6 +88,11 @@ export function buildRow(report, source) {
       if (!category) return err("category inválida para help_request");
       const description = clean(report.description, LIMITS.description);
       if (!description) return err("description requerida");
+      // help_requests exige coordenadas en DB (check has_location). Validar acá
+      // → el cliente recibe un rechazo claro en vez de un error de DB genérico.
+      // coords() ya devolvió null si faltan o caen fuera del bounding box VE.
+      if (latitude === null || longitude === null)
+        return err("help_request requiere coordenadas válidas dentro de Venezuela (latitude y longitude)");
       return {
         ok: true,
         table: "help_requests",

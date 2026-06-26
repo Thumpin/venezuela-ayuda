@@ -23,7 +23,7 @@ test("missing_person válido → checkins, LOOKING_FOR_SOMEONE, contacto privado
 
 test("help_request válido → help_requests, urgency default MEDIUM, contacto privado", () => {
   const r = buildRow(
-    { type: "help_request", external_id: "r1", category: "medical", description: "herido", contact: "+58414" },
+    { type: "help_request", external_id: "r1", category: "medical", description: "herido", contact: "+58414", latitude: 10.5, longitude: -66.9 },
     SRC
   );
   assert.equal(r.ok, true);
@@ -33,9 +33,22 @@ test("help_request válido → help_requests, urgency default MEDIUM, contacto p
 });
 
 test("help_request con category inválida → rechazado", () => {
-  const r = buildRow({ type: "help_request", external_id: "r2", category: "lol", description: "x" }, SRC);
+  const r = buildRow({ type: "help_request", external_id: "r2", category: "lol", description: "x", latitude: 10.5, longitude: -66.9 }, SRC);
   assert.equal(r.ok, false);
   assert.ok(r.error);
+});
+
+test("help_request sin coords → rechazado con razón clara (no error de DB)", () => {
+  const sinCoords = buildRow({ type: "help_request", external_id: "r6", category: "water", description: "agua" }, SRC);
+  assert.equal(sinCoords.ok, false);
+  assert.match(sinCoords.error, /coordenadas/i);
+  // coords fuera de Venezuela también se rechazan (coords() las anula → null).
+  const fuera = buildRow({ type: "help_request", external_id: "r7", category: "water", description: "agua", latitude: 48.8, longitude: 2.3 }, SRC);
+  assert.equal(fuera.ok, false);
+  // con coords válidas en VE → pasa.
+  const ok = buildRow({ type: "help_request", external_id: "r8", category: "water", description: "agua", latitude: 10.24, longitude: -67.59 }, SRC);
+  assert.equal(ok.ok, true);
+  assert.equal(ok.row.latitude, 10.24);
 });
 
 test("damaged_building válido → damaged_reports, dedup_key de place_name", () => {
@@ -135,15 +148,15 @@ test("damaged_building default severity PARTIAL; contacto va a privado", () => {
 });
 
 test("help_request: valores explícitos se preservan; inválidos caen a default", () => {
-  const ok = buildRow({ type: "help_request", external_id: "r3", category: "rescue", description: "x", urgency: "CRITICAL", status: "RESOLVED" }, SRC);
+  const ok = buildRow({ type: "help_request", external_id: "r3", category: "rescue", description: "x", urgency: "CRITICAL", status: "RESOLVED", latitude: 10.5, longitude: -66.9 }, SRC);
   assert.equal(ok.row.urgency, "CRITICAL");
   assert.equal(ok.row.status, "RESOLVED");
-  const bad = buildRow({ type: "help_request", external_id: "r4", category: "rescue", description: "x", urgency: "BOGUS", status: "BOGUS" }, SRC);
+  const bad = buildRow({ type: "help_request", external_id: "r4", category: "rescue", description: "x", urgency: "BOGUS", status: "BOGUS", latitude: 10.5, longitude: -66.9 }, SRC);
   assert.equal(bad.row.urgency, "MEDIUM");
   assert.equal(bad.row.status, "OPEN");
 });
 
 test("contacto se recorta al límite de teléfono (30)", () => {
-  const r = buildRow({ type: "help_request", external_id: "r5", category: "food", description: "x", contact: "x".repeat(60) }, SRC);
+  const r = buildRow({ type: "help_request", external_id: "r5", category: "food", description: "x", contact: "x".repeat(60), latitude: 10.5, longitude: -66.9 }, SRC);
   assert.equal(r.row.contact.length, 30);
 });
