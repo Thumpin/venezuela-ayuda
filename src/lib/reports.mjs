@@ -2,7 +2,7 @@
 // del ingest) a una vista `public_*` (sin PII) + filtro de status, y arma el
 // cursor de paginación. Puro y testeable (`node --test`): no toca Supabase.
 //
-// Las vistas ya omiten phone_private/contact (ver migraciones 0006/0007/0012/0014).
+// Las vistas ya omiten phone_private/contact (ver migraciones 0006/0007/0012/0015).
 // Acá nunca seleccionamos esas columnas — pedimos columnas explícitas por vista.
 
 // type público → { view, status? }. `status` (cuando existe) se aplica como

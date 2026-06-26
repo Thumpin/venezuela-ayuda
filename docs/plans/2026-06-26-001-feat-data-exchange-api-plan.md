@@ -201,12 +201,12 @@ Sitio web actual (Next) ──server actions + data.ts── (sin cambios)
 > este PR como vía recomendada (lee las vistas `public_*`, cursor estable, sin PII);
 > el acceso directo por Supabase REST queda como alternativa.
 
-### U1. Migración 0014 — tabla `api_partners` + índices únicos para upsert
+### U1. Migración 0015 — tabla `api_partners` + índices únicos para upsert
 
 **Goal:** Habilitar auth por socio y upsert idempotente sobre las tablas existentes.
 **Requirements:** Decisiones 1, 2, 4.
 **Dependencies:** ninguna.
-**Files:** `supabase/migrations/0014_api_partners.sql`
+**Files:** `supabase/migrations/0015_api_partners.sql`
 
 **Approach:**
 - `create table api_partners (id uuid pk default gen_random_uuid(), name text not
@@ -240,7 +240,7 @@ Sitio web actual (Next) ──server actions + data.ts── (sin cambios)
 - Índices únicos parciales para upsert: `create unique index ... on checkins
   (source, external_id) where source is not null and external_id is not null;` —
   idem `help_requests`, `help_offers`, `damaged_reports`.
-- Terminar con `insert into applied_migrations (version) values ('0014') on
+- Terminar con `insert into applied_migrations (version) values ('0015') on
   conflict do nothing;`.
 
 **Patterns to follow:** `supabase/migrations/0006_admin_and_moderation.sql`
@@ -249,7 +249,7 @@ Sitio web actual (Next) ──server actions + data.ts── (sin cambios)
 
 **Test scenarios:** `Test expectation: none` — DDL. Se verifica con el upsert de U4.
 
-**Verification:** `node scripts/check-migrations.mjs` reporta 0014; existe el
+**Verification:** `node scripts/check-migrations.mjs` reporta 0015; existe el
 colaborador `venezuela-ayuda.com` y se le emitió la primera key (autentica en
 `/api/v1/ingest`); tras el backfill **ningún** reporte tiene `source` null, y los
 scrapeados conservan su origen; un insert orgánico nuevo queda con
@@ -534,7 +534,7 @@ el cron de dedup).
 
 ## Verificación de extremo a extremo
 
-1. Aplicar 0014; `check-migrations.mjs` la reporta.
+1. Aplicar 0015; `check-migrations.mjs` la reporta.
 2. Desde `/admin/colaboradores`, crear un colaborador → key de prueba (mostrada una vez).
 3. `curl POST /api/v1/ingest` con la key + 2 filas canónicas → 200 `upserted`;
    reenviar → idempotente.

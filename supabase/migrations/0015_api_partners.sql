@@ -1,6 +1,6 @@
--- 0014 · API partners (colaboradores) + atribución de origen + idempotencia
+-- 0015 · API partners (colaboradores) + atribución de origen + idempotencia
 --
--- El hub central recibe reportes de múltiples sitios por `POST /api/ingest`,
+-- El hub central recibe reportes de múltiples sitios por `POST /api/v1/ingest`,
 -- cerrado por API key. Cada socio (colaborador) vive en `api_partners`; su key
 -- se guarda solo como hash. El `source` de cada reporte se estampa server-side
 -- desde la key (no spoofeable).
@@ -91,4 +91,4 @@ create unique index if not exists damaged_source_extid_uidx         on damaged_r
 -- Nota: el lookup de auth por `key_hash` usa el índice de la constraint UNIQUE
 -- de la columna (no hace falta un índice extra).
 
-insert into applied_migrations (version) values ('0014') on conflict do nothing;
+insert into applied_migrations (version) values ('0015') on conflict do nothing;

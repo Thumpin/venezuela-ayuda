@@ -69,7 +69,7 @@ socio reenvía el mismo `external_id`, se actualiza su fila en vez de duplicar.
 
 ### 2.4 Primer colaborador + atribución de todo reporte
 
-La migración `0014` también:
+La migración `0015` también:
 - **Crea el colaborador #1 = nosotros**: `Venezuela Ayuda` / `source =
   venezuela-ayuda.com`, y se le emite la **primera API key**. (Nuestros reportes
   orgánicos siguen entrando por los forms con `source` por default; la key nos
@@ -84,7 +84,7 @@ La migración `0014` también:
 Regla de atribución: **default = Venezuela Ayuda; excepción = plataforma externa
 con origen conocido.**
 
-> Todo lo anterior va en **una sola migración: `0014_api_partners.sql`**.
+> Todo lo anterior va en **una sola migración: `0015_api_partners.sql`**.
 
 ---
 
@@ -322,7 +322,7 @@ Para integrar a un socio: el admin lo da de alta en el panel y le entrega su key
 
 | # | Entregable | Tipo |
 |---|---|---|
-| 1 | Migración `0014` — `api_partners` + columnas en `help_offers` + índices únicos | DB |
+| 1 | Migración `0015` — `api_partners` + columnas en `help_offers` + índices únicos | DB |
 | 2 | Auth por API key (hash + lookup) | backend |
 | 3 | `POST /api/v1/ingest` (cerrado por key, upsert idempotente, atribución `source`) | endpoint |
 | 4 | `GET /api/v1/reports` (lectura abierta sin PII, cursor estable, vía recomendada) | endpoint |
