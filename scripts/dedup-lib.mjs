@@ -1,5 +1,5 @@
-// Dedup puro y testeable (`node --test`). Importado por scripts/ingest.mjs y
-// scripts/dedup-lib.test.mjs.
+// Dedup puro y testeable (`node --test`). Importado por src/lib/dedup.ts,
+// src/lib/ingest.mjs (dedup_key), scripts/backfill-dedupkey.mjs y los tests.
 //
 // Principio de diseño: COSTO ASIMÉTRICO. Un falso merge borra datos reales y es
 // inaceptable; un merge perdido solo deja un duplicado, que es recuperable. Por
