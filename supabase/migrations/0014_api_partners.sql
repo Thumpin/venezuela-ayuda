@@ -68,22 +68,9 @@ alter table damaged_reports alter column source set default 'venezuela-ayuda.com
 -- distintos (NULLS DISTINCT, default), así que los reportes orgánicos sin
 -- external_id no colisionan entre sí.
 --
--- Dedup defensivo previo: si datos scrapeados existentes ya tuvieran pares
--- (source, external_id) duplicados, el CREATE UNIQUE INDEX abortaría. Quitamos
--- duplicados dejando el de menor ctid antes de crear cada índice.
-delete from checkins a using checkins b
-  where a.ctid > b.ctid and a.source = b.source and a.external_id = b.external_id
-  and a.source is not null and a.external_id is not null;
-delete from help_requests a using help_requests b
-  where a.ctid > b.ctid and a.source = b.source and a.external_id = b.external_id
-  and a.source is not null and a.external_id is not null;
-delete from help_offers a using help_offers b
-  where a.ctid > b.ctid and a.source = b.source and a.external_id = b.external_id
-  and a.source is not null and a.external_id is not null;
-delete from damaged_reports a using damaged_reports b
-  where a.ctid > b.ctid and a.source = b.source and a.external_id = b.external_id
-  and a.source is not null and a.external_id is not null;
-
+-- PRERREQUISITO: la data no debe tener pares (source, external_id) duplicados, o
+-- el CREATE UNIQUE INDEX abortará. El dedup de duplicados exactos lo maneja un
+-- proceso aparte (no esta migración) y debe correr antes si hubiera duplicados.
 create unique index if not exists checkins_source_extid_uidx        on checkins (source, external_id);
 create unique index if not exists help_requests_source_extid_uidx   on help_requests (source, external_id);
 create unique index if not exists help_offers_source_extid_uidx     on help_offers (source, external_id);
