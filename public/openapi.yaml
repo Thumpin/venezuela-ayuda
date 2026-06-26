@@ -5,7 +5,7 @@ info:
   description: |
     API de coordinación de datos tras el terremoto de Venezuela.
 
-    `venezuela-ayuda.com` es el **hub central**: los sitios socios **publican**
+    **Venezuela Ayuda** opera el **hub central**: los sitios socios **publican**
     reportes vía `POST /api/v1/reports` (cerrado por API key) y **leen** el
     conjunto unificado por `GET /api/v1/reports` (abierto, sin PII).
 
@@ -18,25 +18,30 @@ info:
     ## Tipos de reporte (`type`)
     `type` es un **conjunto cerrado de 5 valores** — el catálogo del hub. Es el
     mismo en escritura (`POST /api/v1/reports`, campo del reporte) y en lectura
-    (`GET /api/v1/reports`, parámetro requerido). Cada valor representa una clase
-    de reporte y mapea a una tabla/vista concreta:
+    (`GET /api/v1/reports`, parámetro requerido):
 
-    | `type` | Qué es | Tabla (escritura) | Vista (lectura, sin PII) |
-    |---|---|---|---|
-    | `missing_person` | Persona desaparecida / se busca | `checkins` (status `LOOKING_FOR_SOMEONE`) | `public_checkins` filtrando `status=LOOKING_FOR_SOMEONE` |
-    | `checkin` | "Estoy a salvo" / "necesito ayuda" | `checkins` (status `SAFE`/`NEEDS_HELP`) | `public_checkins` filtrando `status in (SAFE, NEEDS_HELP)` |
-    | `help_request` | Solicitud de ayuda (médica, agua, rescate…) | `help_requests` | `public_help_requests` |
-    | `help_offer` | Oferta de ayuda / recursos disponibles | `help_offers` | `public_help_offers` |
-    | `damaged_building` | Edificio o estructura dañada | `damaged_reports` | `public_damaged_reports` |
+    | `type` | Qué representa |
+    |---|---|
+    | `missing_person` | Persona desaparecida / se busca |
+    | `checkin` | "Estoy a salvo" / "necesito ayuda" |
+    | `help_request` | Solicitud de ayuda (médica, agua, rescate…) |
+    | `help_offer` | Oferta de ayuda / recursos disponibles |
+    | `damaged_building` | Edificio o estructura dañada |
 
-    `missing_person` y `checkin` comparten la tabla/vista `checkins` y se separan
-    por `status` — por eso son dos `type` distintos aunque vivan en la misma vista.
-    Cualquier otro valor de `type` se rechaza (400 en lectura, fila rechazada en
-    escritura).
+    `missing_person` y `checkin` son dos tipos separados porque describen
+    situaciones opuestas (a alguien lo están buscando vs. alguien reporta que está
+    a salvo o necesita ayuda). Cualquier otro valor de `type` se rechaza (400 en
+    lectura, fila rechazada en escritura).
 
-    ## Autenticación
-    La escritura requiere el header `x-api-key`. Las keys las genera y entrega el
-    equipo de Venezuela Ayuda (una por colaborador). Escríbenos a hola@maw.dev.
+    ## Autenticación y cómo pedir una key
+    La **lectura** (`GET`) es abierta: no necesita key. La **escritura**
+    (`POST`/`PATCH`) requiere el header `x-api-key`.
+
+    Las API keys **no son autoservicio**: las emite el equipo de Venezuela Ayuda,
+    una por colaborador. **Solicita la tuya** escribiendo a hola@maw.dev (dinos
+    quién eres y qué datos vas a publicar). Recibirás una key `va_live_…` que se
+    muestra **una sola vez**. Trátala como un secreto de servidor: nunca la pongas
+    en una app web ni en el navegador.
 
     ## Atribución
     No mandes `source`: se estampa server-side desde tu key (no falsificable).
@@ -54,8 +59,16 @@ info:
     - `status`/`urgency`/`severity`/`category` inválidos para el tipo caen a un
       default (no se rechaza la fila): checkin→SAFE, help_request status→OPEN,
       urgency→MEDIUM, severity→PARTIAL.
-    - Coordenadas fuera del bounding box de Venezuela se descartan (null).
+    - Coordenadas fuera del bounding box de Venezuela se descartan (null) —
+      salvo en `help_request`, que las **exige** (ver **Ubicación**).
     - Los campos de texto se recortan a su largo máximo (ver `maxLength`).
+
+    ## Ubicación
+    `help_request` **requiere** coordenadas (`latitude` + `longitude`) dentro de
+    Venezuela. Sin ellas (o si caen fuera del país) la fila se **rechaza**
+    (`status: rejected`, con el motivo en `results[].error`) — no se escribe a
+    medias. Los demás tipos aceptan coordenadas opcionales y solo las descartan si
+    caen fuera de Venezuela.
 
     ## Rate limit
     ~120 solicitudes/60s por socio (best-effort) y máx 200 reportes por solicitud.
@@ -77,11 +90,6 @@ info:
 
       GET /api/v1/reports?type=help_request&limit=100
       GET /api/v1/reports?type=checkin&city=Caracas&since=2026-06-26T10:00:00Z|<uuid>
-
-    El acceso directo a `{SUPABASE_URL}/rest/v1/public_*` (PostgREST) sigue
-    disponible para quien lo prefiera, pero `GET /api/v1/reports` es la vía
-    recomendada: un solo host, sin manejar la publishable key, y el cursor estable
-    resuelve el desempate por `id` que un `created_at` pelón no garantiza.
 
 servers:
   - url: https://terremoto.hazlohoy.org
@@ -485,7 +493,7 @@ components:
 
     CheckinPublic:
       type: object
-      description: "public_checkins. type=missing_person → status=LOOKING_FOR_SOMEONE; type=checkin → status in (SAFE, NEEDS_HELP)."
+      description: "Reporte de persona. type=missing_person → status=LOOKING_FOR_SOMEONE; type=checkin → status in (SAFE, NEEDS_HELP)."
       properties:
         id: { type: string }
         name: { type: [string, "null"] }
@@ -503,7 +511,7 @@ components:
 
     HelpRequestPublic:
       type: object
-      description: "public_help_requests."
+      description: "Solicitud de ayuda."
       properties:
         id: { type: string }
         category: { type: [string, "null"] }
@@ -521,7 +529,7 @@ components:
 
     HelpOfferPublic:
       type: object
-      description: "public_help_offers."
+      description: "Oferta de ayuda / recursos disponibles."
       properties:
         id: { type: string }
         category: { type: [string, "null"] }
@@ -537,7 +545,7 @@ components:
 
     DamagedBuildingPublic:
       type: object
-      description: "public_damaged_reports."
+      description: "Edificio o estructura dañada."
       properties:
         id: { type: string }
         place_name: { type: [string, "null"] }
@@ -549,8 +557,7 @@ components:
         photo_url: { type: [string, "null"] }
         status: { type: [string, "null"] }
         created_at: { type: string }
-        verified_at: { type: [string, "null"] }
-        verified_by: { type: [string, "null"] }
+        verified_at: { type: [string, "null"], description: "Fecha de verificación por la plataforma (null = sin verificar). NO se expone quién verificó." }
         source: { type: [string, "null"] }
         source_url: { type: [string, "null"] }
         risk_level: { type: [string, "null"], enum: [ROJO, AMARILLO, NINGUNA, null] }
@@ -672,7 +679,7 @@ components:
       type: object
       required: [action, occurred_at, source, changes]
       properties:
-        action: { type: string, enum: [CREATE, UPDATE, HIDE], description: "Tipo de mutación." }
+        action: { type: string, enum: [CREATE, UPDATE, DELETE], description: "Tipo de mutación: alta, edición o borrado. Un borrado deja su rastro acá aunque el reporte ya no exista." }
         occurred_at: { type: string, format: date-time }
         source: { type: [string, "null"], description: "Socio que ejecutó la acción (snapshot del source)." }
         changes:
