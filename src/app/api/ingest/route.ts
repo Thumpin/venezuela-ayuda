@@ -30,6 +30,9 @@ const authenticate = createAuthenticator(async (hash: string) => {
 
 type IngestResult = { external_id: string | null; status: "upserted" | "rejected" | "error"; error?: string };
 
+// buildRow es JS (.mjs); tipamos su retorno acá para que el narrowing por `ok` funcione.
+type Built = { ok: true; table: string; row: Record<string, unknown> } | { ok: false; error: string };
+
 export async function POST(req: Request) {
   const partner = await authenticate(req.headers.get("x-api-key"));
   if (!partner) {
@@ -65,7 +68,7 @@ export async function POST(req: Request) {
   const results: IngestResult[] = [];
   const byTable: Record<string, Record<string, unknown>[]> = {};
   for (const rep of reports) {
-    const built = buildRow(rep, partner.source);
+    const built = buildRow(rep, partner.source) as Built;
     const extId = (rep as { external_id?: string })?.external_id ?? null;
     if (!built.ok) {
       results.push({ external_id: extId, status: "rejected", error: built.error });
