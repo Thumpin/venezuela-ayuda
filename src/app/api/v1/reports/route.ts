@@ -10,16 +10,27 @@ import {
   parseSince,
   buildNextCursor,
 } from "@/lib/reports.mjs";
+import {
+  requireJsonContentType,
+  resolveRequestId,
+  errorBody,
+  safeDbError,
+  corsReadHeaders,
+  readPreflightHeaders,
+  SERVICE_UNAVAILABLE_MESSAGE,
+} from "@/lib/apiHttp.mjs";
 
 // Recurso único `reports` del hub central (v1).
 //
 // GET (abajo): LECTURA de la colección. ABIERTA (sin API key) para maximizar
 // difusión; rate-limit best-effort por IP. Lee solo de las vistas `public_*`
 // (sin PII — phone_private/contact nunca se exponen), nunca de las tablas crudas.
+// CORS `*` (dato público, sin credenciales) → consumible desde browsers socios.
 //
 // POST (abajo): CREAR reportes (batch). Cerrado por API key (scope `write`);
 // escribe con el service key vía RPC `ingest_reports` (upsert idempotente +
-// audit CREATE, atómico por tabla). El `source` se estampa desde la key.
+// audit CREATE, atómico por tabla). El `source` se estampa desde la key. SIN
+// CORS: una key no debe vivir en un browser.
 //
 // El `type` es el MISMO conjunto cerrado en lectura y escritura (missing_person,
 // checkin, help_request, help_offer, damaged_building). Paginación por cursor
@@ -31,13 +42,23 @@ export const maxDuration = 30;
 const MAX_BATCH = 200;
 const MAX_BODY_BYTES = 512 * 1024; // req.json() bufferea todo el body antes del cap de batch
 
+// Preflight CORS de la colección. Sólo anuncia GET/OPTIONS — el POST (key-gated)
+// NO se anuncia, así un browser nunca obtiene permiso para escribir cross-origin.
+export async function OPTIONS() {
+  return new NextResponse(null, { status: 204, headers: readPreflightHeaders() });
+}
+
 export async function GET(req: Request) {
+  // CORS abierto en TODAS las respuestas (incl. errores) para que un browser
+  // cross-origin pueda leerlas. Es un valor constante → seguro de cachear.
+  const cors = corsReadHeaders();
+
   // Rate-limit best-effort por IP (lectura abierta; el límite blunt-ea abuso).
   const rl = rateLimit(await clientKey("reports"), { limit: 120, windowSec: 60 });
   if (!rl.ok) {
     return NextResponse.json(
       { error: "Demasiadas solicitudes." },
-      { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } }
+      { status: 429, headers: { ...cors, "Retry-After": String(rl.retryAfterSec) } }
     );
   }
 
@@ -46,7 +67,7 @@ export async function GET(req: Request) {
   if (!resolved.ok) {
     return NextResponse.json(
       { error: "Parámetro 'type' inválido o ausente. Valores: missing_person, checkin, help_request, help_offer, damaged_building." },
-      { status: 400 }
+      { status: 400, headers: cors }
     );
   }
 
@@ -67,8 +88,9 @@ export async function GET(req: Request) {
   // missing_person/checkin comparten la vista public_checkins; se separan por status.
   if (resolved.status) query = query.in("status", resolved.status);
 
-  // Cursor keyset: created_at > c OR (created_at = c AND id > cid). Sin id en el
-  // cursor (timestamp pelón) cae a un gt simple.
+  // Cursor keyset: created_at > c OR (created_at = c AND id > cid). parseSince ya
+  // validó createdAt (timestamp) e id (uuid) → seguro de interpolar (sin id cae a
+  // un gt simple).
   if (since) {
     if (since.id) {
       query = query.or(
@@ -83,7 +105,7 @@ export async function GET(req: Request) {
 
   const { data, error } = await query;
   if (error) {
-    return NextResponse.json({ error: "Servicio no disponible." }, { status: 503 });
+    return NextResponse.json({ error: SERVICE_UNAVAILABLE_MESSAGE }, { status: 503, headers: cors });
   }
 
   // Cache en el Edge de Vercel sólo en el camino feliz (200). Los errores
@@ -91,7 +113,7 @@ export async function GET(req: Request) {
   const reports = data ?? [];
   return NextResponse.json(
     { reports, next_cursor: buildNextCursor(reports, limit) },
-    { headers: { "Cache-Control": PUBLIC_CDN_CACHE } }
+    { headers: { ...cors, "Cache-Control": PUBLIC_CDN_CACHE } }
   );
 }
 
@@ -105,18 +127,23 @@ type Built = { ok: true; table: string; row: Record<string, unknown> } | { ok: f
 // upsert idempotente por (source, external_id) + audit CREATE de cada fila, todo
 // en UNA transacción → la mutación y su rastro de auditoría son atómicos.
 export async function POST(req: Request) {
+  // request-id: se honra uno entrante (seguro) o se genera; va al audit_log y se
+  // hace eco en TODAS las respuestas (correlación cliente↔logs↔audit).
+  const requestId = resolveRequestId(req.headers.get("x-request-id"));
+  const rid = { "x-request-id": requestId };
+
   // Auth. Un fallo de DB en el lookup → 503 (fail closed), nunca 200/escritura.
   let partner: { partnerId: string; source: string; scopes: string[] } | null;
   try {
     partner = await authenticatePartner(req.headers.get("x-api-key"));
   } catch {
-    return NextResponse.json({ error: "Servicio no disponible." }, { status: 503 });
+    return NextResponse.json(errorBody(SERVICE_UNAVAILABLE_MESSAGE, requestId), { status: 503, headers: rid });
   }
   if (!partner) {
-    return NextResponse.json({ error: "API key inválida o ausente." }, { status: 401 });
+    return NextResponse.json(errorBody("API key inválida o ausente.", requestId), { status: 401, headers: rid });
   }
   if (!partner.scopes?.includes("write")) {
-    return NextResponse.json({ error: "La key no tiene permiso de escritura." }, { status: 403 });
+    return NextResponse.json(errorBody("La key no tiene permiso de escritura.", requestId), { status: 403, headers: rid });
   }
   const source = partner.source;
 
@@ -124,27 +151,35 @@ export async function POST(req: Request) {
   const rl = rateLimit(`reports:write:${source}`, { limit: 120, windowSec: 60 });
   if (!rl.ok) {
     return NextResponse.json(
-      { error: "Demasiadas solicitudes." },
-      { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } }
+      errorBody("Demasiadas solicitudes.", requestId),
+      { status: 429, headers: { ...rid, "Retry-After": String(rl.retryAfterSec) } }
+    );
+  }
+
+  // Content-Type debe ser JSON (415 si no) — antes de buffersear el body.
+  if (!requireJsonContentType(req.headers.get("content-type"))) {
+    return NextResponse.json(
+      errorBody("Content-Type debe ser application/json.", requestId),
+      { status: 415, headers: rid }
     );
   }
 
   // Guard de tamaño antes de parsear (el body se bufferea entero en memoria).
   if (Number(req.headers.get("content-length") || 0) > MAX_BODY_BYTES) {
-    return NextResponse.json({ error: "Payload demasiado grande." }, { status: 413 });
+    return NextResponse.json(errorBody("Payload demasiado grande.", requestId), { status: 413, headers: rid });
   }
 
   let reports: unknown;
   try {
     reports = ((await req.json()) as { reports?: unknown })?.reports;
   } catch {
-    return NextResponse.json({ error: "Cuerpo JSON inválido." }, { status: 400 });
+    return NextResponse.json(errorBody("Cuerpo JSON inválido.", requestId), { status: 400, headers: rid });
   }
   if (!Array.isArray(reports)) {
-    return NextResponse.json({ error: "Falta el arreglo 'reports'." }, { status: 400 });
+    return NextResponse.json(errorBody("Falta el arreglo 'reports'.", requestId), { status: 400, headers: rid });
   }
   if (reports.length > MAX_BATCH) {
-    return NextResponse.json({ error: `Máximo ${MAX_BATCH} reportes por solicitud.` }, { status: 413 });
+    return NextResponse.json(errorBody(`Máximo ${MAX_BATCH} reportes por solicitud.`, requestId), { status: 413, headers: rid });
   }
 
   // Validar + rutear. Dedup intra-batch por external_id (el source es constante
@@ -167,7 +202,7 @@ export async function POST(req: Request) {
   // transacción (upsert idempotente + audit CREATE de cada fila): atómico por
   // tabla → se preserva la semántica de éxito-parcial-por-tabla del endpoint.
   const svc = getServerSupabase();
-  const meta = requestMeta(req);
+  const meta = requestMeta(req, requestId);
   const tables = (INGEST_TABLES as string[]).filter((t) => byTable[t]?.size);
   const outcomes = await Promise.allSettled(
     tables.map((t) =>
@@ -188,11 +223,13 @@ export async function POST(req: Request) {
   tables.forEach((t, i) => {
     const rows = [...byTable[t].values()];
     const outcome = outcomes[i];
+    // Error de DB → mensaje GENÉRICO. El texto crudo de Postgres (constraint,
+    // SQLSTATE, fragmentos de query) jamás llega al cliente (safeDbError).
     const dbError =
       outcome.status === "rejected"
-        ? "fallo de servicio"
+        ? safeDbError(outcome.reason)
         : outcome.value.error
-          ? outcome.value.error.message || "no se pudo guardar"
+          ? safeDbError(outcome.value.error)
           : null;
     if (dbError) {
       dbErrors++;
@@ -213,5 +250,8 @@ export async function POST(req: Request) {
   // Falla total de DB (nada aceptado, hubo errores de DB) → 503 para que el
   // cliente reintente. Rechazos de validación NO disparan 503 (no son retryables).
   const httpStatus = dbErrors > 0 && accepted === 0 ? 503 : 200;
-  return NextResponse.json({ accepted, rejected, errored, results }, { status: httpStatus });
+  return NextResponse.json(
+    { accepted, rejected, errored, results, request_id: requestId },
+    { status: httpStatus, headers: rid }
+  );
 }

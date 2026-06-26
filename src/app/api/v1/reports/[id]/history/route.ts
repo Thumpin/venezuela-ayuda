@@ -4,6 +4,7 @@ import { rateLimit, clientKey } from "@/lib/rateLimit";
 import { PUBLIC_CDN_CACHE } from "@/lib/httpCache";
 import { isUuid } from "@/lib/reports.mjs";
 import { projectHistory } from "@/lib/audit.mjs";
+import { corsReadHeaders, readPreflightHeaders, SERVICE_UNAVAILABLE_MESSAGE } from "@/lib/apiHttp.mjs";
 
 // GET /api/v1/reports/{id}/history — audit trail de un reporte.
 //
@@ -18,6 +19,11 @@ export const maxDuration = 15;
 
 type Params = { params: Promise<{ id: string }> };
 
+// Preflight CORS — sólo lectura (GET/OPTIONS).
+export async function OPTIONS() {
+  return new NextResponse(null, { status: 204, headers: readPreflightHeaders() });
+}
+
 type AuditRow = {
   action: string;
   occurred_at: string;
@@ -28,16 +34,17 @@ type AuditRow = {
 };
 
 export async function GET(req: Request, { params }: Params) {
+  const cors = corsReadHeaders();
   const { id } = await params;
   if (!isUuid(id)) {
-    return NextResponse.json({ error: "id inválido (se espera un uuid)." }, { status: 400 });
+    return NextResponse.json({ error: "id inválido (se espera un uuid)." }, { status: 400, headers: cors });
   }
 
   const rl = rateLimit(await clientKey("reports:history"), { limit: 120, windowSec: 60 });
   if (!rl.ok) {
     return NextResponse.json(
       { error: "Demasiadas solicitudes." },
-      { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } }
+      { status: 429, headers: { ...cors, "Retry-After": String(rl.retryAfterSec) } }
     );
   }
 
@@ -51,7 +58,7 @@ export async function GET(req: Request, { params }: Params) {
     .eq("resource_id", id)
     .order("seq", { ascending: true });
   if (error) {
-    return NextResponse.json({ error: "Servicio no disponible." }, { status: 503 });
+    return NextResponse.json({ error: SERVICE_UNAVAILABLE_MESSAGE }, { status: 503, headers: cors });
   }
 
   const rows = (data ?? []) as AuditRow[];
@@ -60,6 +67,6 @@ export async function GET(req: Request, { params }: Params) {
 
   return NextResponse.json(
     { id, history },
-    { headers: { "Cache-Control": PUBLIC_CDN_CACHE } }
+    { headers: { ...cors, "Cache-Control": PUBLIC_CDN_CACHE } }
   );
 }

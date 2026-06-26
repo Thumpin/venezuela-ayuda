@@ -101,11 +101,25 @@ export function buildNextCursor(rows, limit) {
   return `${last.created_at}|${last.id}`;
 }
 
+// Timestamp permisivo estilo Postgres/ISO-8601: `YYYY-MM-DD[ T]HH:MM:SS[.frac][tz]`.
+// El tz puede ser Z, ±HH, ±HH:MM o ±HHMM. NO contiene metacaracteres de filtro
+// PostgREST (paréntesis, comas), así que un valor que pase esto es seguro de
+// interpolar en `created_at.gt.<v>`.
+const TIMESTAMP_RE =
+  /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(\.\d{1,6})?(Z|[+-]\d{2}(:?\d{2})?)?$/;
+
 // Parsea el cursor `since` (sea un ISO solo, o `created_at|id`) → { createdAt, id }.
-// id es null si el cursor no lo trae (compat con un timestamp pelón).
+//
+// SEGURIDAD: createdAt e id se interpolan crudos en un filtro `.or(...)` de
+// PostgREST. Sin validar, un atacante inyecta sintaxis de filtro y altera/escapa
+// el query (p.ej. saltarse el filtro de status). Por eso:
+//   - createdAt DEBE ser un timestamp válido; si no, se descarta el cursor entero
+//     (null → la lectura cae a la primera página, comportamiento seguro).
+//   - id DEBE ser un uuid; si no, se neutraliza (id:null) sin tirar la paginación
+//     por timestamp.
 export function parseSince(raw) {
   if (typeof raw !== "string" || !raw.trim()) return null;
   const [createdAt, id] = raw.split("|");
-  if (!createdAt) return null;
-  return { createdAt, id: id ?? null };
+  if (!createdAt || !TIMESTAMP_RE.test(createdAt)) return null;
+  return { createdAt, id: isUuid(id) ? id : null };
 }

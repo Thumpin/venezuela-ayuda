@@ -123,10 +123,11 @@ test("typeForResource: checkins se desambigua por status; resto es directo", () 
   assert.equal(typeForResource("damaged_reports", {}), "damaged_building");
 });
 
-test("parseSince: created_at|id, timestamp pelón, y basura", () => {
-  assert.deepEqual(parseSince("2026-06-26T10:00:00Z|abc"), {
+test("parseSince: created_at|id (uuid), timestamp pelón, y basura", () => {
+  const uuid = "550e8400-e29b-41d4-a716-446655440000";
+  assert.deepEqual(parseSince(`2026-06-26T10:00:00Z|${uuid}`), {
     createdAt: "2026-06-26T10:00:00Z",
-    id: "abc",
+    id: uuid,
   });
   assert.deepEqual(parseSince("2026-06-26T10:00:00Z"), {
     createdAt: "2026-06-26T10:00:00Z",
@@ -135,4 +136,38 @@ test("parseSince: created_at|id, timestamp pelón, y basura", () => {
   assert.equal(parseSince(""), null);
   assert.equal(parseSince(null), null);
   assert.equal(parseSince(undefined), null);
+});
+
+test("parseSince: acepta el formato real de Postgres (micros + offset)", () => {
+  const uuid = "550e8400-e29b-41d4-a716-446655440000";
+  assert.deepEqual(parseSince(`2026-06-26T10:00:00.123456+00:00|${uuid}`), {
+    createdAt: "2026-06-26T10:00:00.123456+00:00",
+    id: uuid,
+  });
+  // Espacio en vez de T (forma que a veces emite Postgres) también vale.
+  assert.deepEqual(parseSince("2026-06-26 10:00:00+00"), {
+    createdAt: "2026-06-26 10:00:00+00",
+    id: null,
+  });
+});
+
+test("parseSince: createdAt que no es timestamp → null (cierra inyección PostgREST)", () => {
+  // El valor se interpola en `.or(created_at.gt.${createdAt})`; sin validar, un
+  // atacante rompe el filtro. Un createdAt no-timestamp se descarta entero.
+  assert.equal(parseSince("2026-01-01),or(id.eq.x"), null);
+  assert.equal(parseSince("not-a-date|550e8400-e29b-41d4-a716-446655440000"), null);
+  assert.equal(parseSince("'; DROP TABLE checkins; --"), null);
+});
+
+test("parseSince: id que no es uuid → se descarta el id, conserva el timestamp", () => {
+  // id se interpola en `id.gt.${id}`; un id no-uuid se neutraliza (id:null) sin
+  // tirar la paginación por timestamp.
+  assert.deepEqual(parseSince("2026-06-26T10:00:00Z|abc"), {
+    createdAt: "2026-06-26T10:00:00Z",
+    id: null,
+  });
+  assert.deepEqual(parseSince("2026-06-26T10:00:00Z|x),or(true)"), {
+    createdAt: "2026-06-26T10:00:00Z",
+    id: null,
+  });
 });

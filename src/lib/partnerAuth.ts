@@ -32,12 +32,14 @@ export const authenticatePartner: (apiKey: string | null) => Promise<Partner | n
 
 // Metadata forense del request para el audit log (snapshot interno, nunca se
 // expone por la lectura pública). ip = primer hop de x-forwarded-for (Vercel).
-export type RequestMeta = { requestId: string | null; ip: string | null; userAgent: string | null };
+// El requestId se resuelve UNA vez en la ruta (resolveRequestId) y se inyecta
+// acá, para que el mismo id vaya al audit_log y al header de respuesta.
+export type RequestMeta = { requestId: string; ip: string | null; userAgent: string | null };
 
-export function requestMeta(req: Request): RequestMeta {
+export function requestMeta(req: Request, requestId: string): RequestMeta {
   const h = req.headers;
   return {
-    requestId: h.get("x-request-id"),
+    requestId,
     ip: h.get("x-forwarded-for")?.split(",")[0]?.trim() || h.get("x-real-ip") || null,
     userAgent: h.get("user-agent"),
   };

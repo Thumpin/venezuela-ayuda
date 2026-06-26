@@ -1,5 +1,6 @@
 import type { NextConfig } from "next";
 import createNextIntlPlugin from "next-intl/plugin";
+import { SECURITY_HEADERS, API_SECURITY_HEADERS } from "./src/lib/apiHttp.mjs";
 
 const withNextIntl = createNextIntlPlugin("./src/i18n/request.ts");
 
@@ -13,6 +14,15 @@ const nextConfig: NextConfig = {
       // Public Supabase Storage (check-in / missing-person photos).
       { protocol: "https", hostname: "*.supabase.co", pathname: "/storage/v1/object/public/**" },
     ],
+  },
+  // Security headers que Vercel NO pone automático. HTTPS-redirect (308) y HSTS
+  // base los da la plataforma; acá reforzamos lo que falta. Globales = seguros
+  // también para el sitio HTML; el lockdown de Permissions-Policy va sólo a /api.
+  async headers() {
+    return [
+      { source: "/:path*", headers: SECURITY_HEADERS },
+      { source: "/api/:path*", headers: API_SECURITY_HEADERS },
+    ];
   },
 };
 

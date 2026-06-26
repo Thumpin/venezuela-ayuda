@@ -11,6 +11,14 @@ import {
   VIEW_FOR_TABLE,
   typeForResource,
 } from "@/lib/reports.mjs";
+import {
+  requireJsonContentType,
+  resolveRequestId,
+  errorBody,
+  corsReadHeaders,
+  readPreflightHeaders,
+  SERVICE_UNAVAILABLE_MESSAGE,
+} from "@/lib/apiHttp.mjs";
 
 // /api/v1/reports/{id} — un reporte por su id global (uuid).
 //
@@ -26,7 +34,15 @@ import {
 export const runtime = "nodejs";
 export const maxDuration = 30;
 
+const MAX_PATCH_BODY_BYTES = 64 * 1024; // un patch es UN objeto; 64KB sobra
+
 type Params = { params: Promise<{ id: string }> };
+
+// Preflight CORS. Sólo GET/OPTIONS (el PATCH key-gated no se anuncia → un browser
+// nunca obtiene permiso para editar cross-origin con la key expuesta).
+export async function OPTIONS() {
+  return new NextResponse(null, { status: 204, headers: readPreflightHeaders() });
+}
 
 // Proyecta una fila CRUDA (con PII) a sus columnas públicas + `type`. Whitelist
 // por VIEW_COLUMNS → phone_private/contact/manage_token nunca salen.
@@ -43,16 +59,17 @@ function projectPublic(table: string, row: Record<string, unknown>): Record<stri
 }
 
 export async function GET(req: Request, { params }: Params) {
+  const cors = corsReadHeaders();
   const { id } = await params;
   if (!isUuid(id)) {
-    return NextResponse.json({ error: "id inválido (se espera un uuid)." }, { status: 400 });
+    return NextResponse.json({ error: "id inválido (se espera un uuid)." }, { status: 400, headers: cors });
   }
 
   const rl = rateLimit(await clientKey("reports:item"), { limit: 120, windowSec: 60 });
   if (!rl.ok) {
     return NextResponse.json(
       { error: "Demasiadas solicitudes." },
-      { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } }
+      { status: 429, headers: { ...cors, "Retry-After": String(rl.retryAfterSec) } }
     );
   }
 
@@ -68,28 +85,31 @@ export async function GET(req: Request, { params }: Params) {
   for (let i = 0; i < lookups.length; i++) {
     const out = lookups[i];
     if (out.status === "rejected") {
-      return NextResponse.json({ error: "Servicio no disponible." }, { status: 503 });
+      return NextResponse.json({ error: SERVICE_UNAVAILABLE_MESSAGE }, { status: 503, headers: cors });
     }
     if (out.value.error) {
-      return NextResponse.json({ error: "Servicio no disponible." }, { status: 503 });
+      return NextResponse.json({ error: SERVICE_UNAVAILABLE_MESSAGE }, { status: 503, headers: cors });
     }
     const row = out.value.data as Record<string, unknown> | null;
     if (row) {
       const table = RESOURCES[i].table;
       return NextResponse.json(
         { report: { type: typeForResource(table, row), ...row } },
-        { headers: { "Cache-Control": PUBLIC_CDN_CACHE } }
+        { headers: { ...cors, "Cache-Control": PUBLIC_CDN_CACHE } }
       );
     }
   }
 
-  return NextResponse.json({ error: "Reporte no encontrado." }, { status: 404 });
+  return NextResponse.json({ error: "Reporte no encontrado." }, { status: 404, headers: cors });
 }
 
 export async function PATCH(req: Request, { params }: Params) {
+  const requestId = resolveRequestId(req.headers.get("x-request-id"));
+  const rid = { "x-request-id": requestId };
+
   const { id } = await params;
   if (!isUuid(id)) {
-    return NextResponse.json({ error: "id inválido (se espera un uuid)." }, { status: 400 });
+    return NextResponse.json(errorBody("id inválido (se espera un uuid).", requestId), { status: 400, headers: rid });
   }
 
   // Auth (igual que POST): 503 en fallo de DB, 401 sin partner, 403 sin scope.
@@ -97,32 +117,40 @@ export async function PATCH(req: Request, { params }: Params) {
   try {
     partner = await authenticatePartner(req.headers.get("x-api-key"));
   } catch {
-    return NextResponse.json({ error: "Servicio no disponible." }, { status: 503 });
+    return NextResponse.json(errorBody(SERVICE_UNAVAILABLE_MESSAGE, requestId), { status: 503, headers: rid });
   }
   if (!partner) {
-    return NextResponse.json({ error: "API key inválida o ausente." }, { status: 401 });
+    return NextResponse.json(errorBody("API key inválida o ausente.", requestId), { status: 401, headers: rid });
   }
   if (!partner.scopes?.includes("write")) {
-    return NextResponse.json({ error: "La key no tiene permiso de escritura." }, { status: 403 });
+    return NextResponse.json(errorBody("La key no tiene permiso de escritura.", requestId), { status: 403, headers: rid });
   }
   const source = partner.source;
 
   const rl = rateLimit(`reports:write:${source}`, { limit: 120, windowSec: 60 });
   if (!rl.ok) {
     return NextResponse.json(
-      { error: "Demasiadas solicitudes." },
-      { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } }
+      errorBody("Demasiadas solicitudes.", requestId),
+      { status: 429, headers: { ...rid, "Retry-After": String(rl.retryAfterSec) } }
     );
+  }
+
+  // Content-Type JSON (415) + guard de tamaño (un patch es un objeto chico).
+  if (!requireJsonContentType(req.headers.get("content-type"))) {
+    return NextResponse.json(errorBody("Content-Type debe ser application/json.", requestId), { status: 415, headers: rid });
+  }
+  if (Number(req.headers.get("content-length") || 0) > MAX_PATCH_BODY_BYTES) {
+    return NextResponse.json(errorBody("Payload demasiado grande.", requestId), { status: 413, headers: rid });
   }
 
   let body: unknown;
   try {
     body = await req.json();
   } catch {
-    return NextResponse.json({ error: "Cuerpo JSON inválido." }, { status: 400 });
+    return NextResponse.json(errorBody("Cuerpo JSON inválido.", requestId), { status: 400, headers: rid });
   }
   if (!body || typeof body !== "object" || Array.isArray(body)) {
-    return NextResponse.json({ error: "El cuerpo debe ser un objeto con los campos a modificar." }, { status: 400 });
+    return NextResponse.json(errorBody("El cuerpo debe ser un objeto con los campos a modificar.", requestId), { status: 400, headers: rid });
   }
 
   // Resolver la tabla/type del id contra las tablas base (service key). Se usa la
@@ -142,7 +170,7 @@ export async function PATCH(req: Request, { params }: Params) {
   for (let i = 0; i < probes.length; i++) {
     const out = probes[i];
     if (out.status === "rejected" || out.value.error) {
-      return NextResponse.json({ error: "Servicio no disponible." }, { status: 503 });
+      return NextResponse.json(errorBody(SERVICE_UNAVAILABLE_MESSAGE, requestId), { status: 503, headers: rid });
     }
     const row = out.value.data as Record<string, unknown> | null;
     if (row) {
@@ -152,7 +180,7 @@ export async function PATCH(req: Request, { params }: Params) {
     }
   }
   if (!table || !resolvedType) {
-    return NextResponse.json({ error: "Reporte no encontrado." }, { status: 404 });
+    return NextResponse.json(errorBody("Reporte no encontrado.", requestId), { status: 404, headers: rid });
   }
 
   // El `type` del body (si viene) es solo confirmación del discriminador; debe
@@ -160,8 +188,8 @@ export async function PATCH(req: Request, { params }: Params) {
   const bodyType = (body as { type?: unknown }).type;
   if (bodyType != null && bodyType !== resolvedType) {
     return NextResponse.json(
-      { error: `El type del body (${String(bodyType)}) no coincide con el del reporte (${resolvedType}).` },
-      { status: 400 }
+      errorBody(`El type del body (${String(bodyType)}) no coincide con el del reporte (${resolvedType}).`, requestId),
+      { status: 400, headers: rid }
     );
   }
 
@@ -169,10 +197,10 @@ export async function PATCH(req: Request, { params }: Params) {
     | { ok: true; table: string; patch: Record<string, unknown> }
     | { ok: false; error: string };
   if (!patch.ok) {
-    return NextResponse.json({ error: patch.error }, { status: 400 });
+    return NextResponse.json(errorBody(patch.error, requestId), { status: 400, headers: rid });
   }
 
-  const meta = requestMeta(req);
+  const meta = requestMeta(req, requestId);
   const { data, error } = await svc.rpc("patch_report", {
     p_table: table,
     p_id: id,
@@ -184,14 +212,17 @@ export async function PATCH(req: Request, { params }: Params) {
     p_user_agent: meta.userAgent,
   });
   if (error) {
-    return NextResponse.json({ error: "Servicio no disponible." }, { status: 503 });
+    return NextResponse.json(errorBody(SERVICE_UNAVAILABLE_MESSAGE, requestId), { status: 503, headers: rid });
   }
   // RPC devuelve null si la fila desapareció entre el probe y el update (carrera).
   if (!data) {
-    return NextResponse.json({ error: "Reporte no encontrado." }, { status: 404 });
+    return NextResponse.json(errorBody("Reporte no encontrado.", requestId), { status: 404, headers: rid });
   }
 
   // Proyectar la fila resultante SIN PII antes de responder (el RPC devuelve la
   // fila cruda con phone_private/contact).
-  return NextResponse.json({ report: projectPublic(table, data as Record<string, unknown>) }, { status: 200 });
+  return NextResponse.json(
+    { report: projectPublic(table, data as Record<string, unknown>), request_id: requestId },
+    { status: 200, headers: rid }
+  );
 }
