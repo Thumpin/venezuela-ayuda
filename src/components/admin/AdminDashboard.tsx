@@ -2,7 +2,6 @@
 
 import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import { useCallback, useMemo } from "react";
 import { timeAgo } from "@/lib/format";
 import type { MergeCandidate, ReviewedCandidate, AdminDamagedRow, ModerationItem } from "@/lib/admin";
 
@@ -139,12 +138,12 @@ export default function AdminDashboard({ pending, reviewed, damaged, mod }: {
   const sel = sp.get("sel") || "";
 
   return (
-    <div className="grid gap-6 lg:grid-cols-3">
+    <div className="grid h-full gap-6 overflow-hidden lg:grid-cols-3">
       {/* Left column: lists */}
-      <div className="space-y-6 lg:col-span-1">
+      <div className="space-y-4 overflow-y-auto lg:col-span-1" style={{ scrollbarGutter: "stable" }}>
         {/* Duplicados */}
         <section>
-          <div className="mb-2 flex items-center justify-between">
+          <div className="sticky -top-1 z-10 mb-2 flex items-center justify-between bg-[#f7f8fa] py-1">
             <h2 className="flex items-center gap-1.5 text-sm font-bold text-[#14212e]">
               <span className="text-base">🔁</span> Duplicados
             </h2>
@@ -174,7 +173,7 @@ export default function AdminDashboard({ pending, reviewed, damaged, mod }: {
 
         {/* Edificios dañados */}
         <section>
-          <div className="mb-2 flex items-center justify-between">
+          <div className="sticky -top-1 z-10 mb-2 flex items-center justify-between bg-[#f7f8fa] py-1">
             <h2 className="flex items-center gap-1.5 text-sm font-bold text-[#14212e]">
               <span className="text-base">🏚️</span> Edificios
             </h2>
@@ -196,7 +195,7 @@ export default function AdminDashboard({ pending, reviewed, damaged, mod }: {
 
         {/* Moderación */}
         <section>
-          <div className="mb-2 flex items-center justify-between">
+          <div className="sticky -top-1 z-10 mb-2 flex items-center justify-between bg-[#f7f8fa] py-1">
             <h2 className="flex items-center gap-1.5 text-sm font-bold text-[#14212e]">
               <span className="text-base">⚡</span> Moderación
             </h2>
@@ -224,7 +223,7 @@ export default function AdminDashboard({ pending, reviewed, damaged, mod }: {
       </div>
 
       {/* Right column: detail */}
-      <div className="lg:col-span-2">
+      <div className="overflow-y-auto lg:col-span-2" style={{ scrollbarGutter: "stable" }}>
         <DetailPanel sel={sel} pending={pending} damaged={damaged} mod={mod} />
       </div>
     </div>

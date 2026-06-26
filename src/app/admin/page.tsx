@@ -37,7 +37,7 @@ export default async function AdminPage() {
   return (
     <>
       <Header />
-      <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-8">
+      <main className="mx-auto flex w-full max-w-7xl flex-1 flex-col overflow-hidden px-4 py-6">
         {/* Top bar */}
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[#e6ecf2] bg-white p-4">
           <div className="min-w-0">
@@ -113,8 +113,8 @@ export default async function AdminPage() {
           </Link>
         </div>
 
-        {/* Master-detail dashboard */}
-        <div className="mt-6">
+        {/* Master-detail dashboard - fixed height, independent scroll */}
+        <div className="mt-4 flex-1 min-h-0" style={{ height: "calc(100vh - 260px)" }}>
           <AdminDashboard pending={pending} reviewed={reviewed} damaged={damaged} mod={mod} />
         </div>
       </main>
