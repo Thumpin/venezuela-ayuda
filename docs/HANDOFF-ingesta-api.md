@@ -210,10 +210,10 @@ Reglas:
   "rejected": 1,                          // rechazos de validación (permanentes — no reintentar)
   "errored": 0,                           // fallos de DB (transitorios — reintentar esas filas)
   "results": [
-    { "external_id": "cruzroja:1023", "status": "upserted" },
-    { "external_id": "cruzroja:req-77", "status": "upserted" },
-    { "external_id": "cruzroja:b-9", "status": "upserted" },
-    { "external_id": "cruzroja:o-3", "status": "upserted" },
+    { "external_id": "cruzroja:1023", "status": "upserted", "report_id": "8f3a…" },
+    { "external_id": "cruzroja:req-77", "status": "upserted", "report_id": "1c92…" },
+    { "external_id": "cruzroja:b-9", "status": "upserted", "report_id": "a07e…" },
+    { "external_id": "cruzroja:o-3", "status": "upserted", "report_id": "d4b1…" },
     { "external_id": "cruzroja:x", "status": "rejected", "error": "type inválido" }
   ]
 }
@@ -229,6 +229,9 @@ mismo lote puede salir con parte `upserted` y parte `error` — y aun así el HT
 - Reconciliá `results` **fila por fila usando tu `external_id`**: reintenta solo
   las `error` (transitorias); las `rejected` son permanentes (no reintentar, corregí
   el dato); las `upserted` ya quedaron.
+- `report_id` es el id canónico del hub del reporte; viene **solo** en las filas
+  `upserted` (no en `rejected`/`error`). Es estable: re-postear el mismo
+  `external_id` devuelve el mismo `report_id` (upsert idempotente).
 - `accepted` / `rejected` / `errored` son los conteos agregados de esos tres estados.
 - El HTTP **503** se devuelve **solo cuando toda la escritura falló** (nada
   aceptado) — ahí reintentá el lote completo.

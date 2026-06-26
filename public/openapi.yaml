@@ -459,6 +459,7 @@ components:
             properties:
               external_id: { type: [string, "null"] }
               status: { type: string, enum: [upserted, rejected, error] }
+              report_id: { type: string, description: "Id canónico del hub; presente solo en upserted. Estable: re-postear el mismo external_id devuelve el mismo report_id." }
               error: { type: string, description: "Presente solo en rejected/error." }
 
     # ── Lectura (GET /api/v1/reports) ──────────────────────────────────────

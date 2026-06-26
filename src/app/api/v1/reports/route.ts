@@ -96,7 +96,7 @@ export async function GET(req: Request) {
 }
 
 type IngestStatus = "upserted" | "rejected" | "error";
-type IngestResult = { external_id: string | null; status: IngestStatus; error?: string };
+type IngestResult = { external_id: string | null; status: IngestStatus; error?: string; report_id?: string };
 // buildRow es JS (.mjs); tipamos su retorno acá para que el narrowing por `ok` funcione.
 type Built = { ok: true; table: string; row: Record<string, unknown> } | { ok: false; error: string };
 
@@ -199,7 +199,12 @@ export async function POST(req: Request) {
       for (const row of rows) results.push({ external_id: (row.external_id as string) ?? null, status: "error", error: dbError });
     } else {
       accepted += rows.length;
-      for (const row of rows) results.push({ external_id: (row.external_id as string) ?? null, status: "upserted" });
+      // El RPC devuelve los ids upserted EN EL MISMO ORDEN que rows (= p_rows) →
+      // zip posicional rows[k] ↔ ids[k].
+      const ids = (outcome.status === "fulfilled" ? (outcome.value.data as string[] | null) : null) ?? [];
+      rows.forEach((row, k) =>
+        results.push({ external_id: (row.external_id as string) ?? null, status: "upserted", report_id: ids[k] })
+      );
     }
   });
 
