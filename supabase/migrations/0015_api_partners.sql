@@ -29,8 +29,13 @@ alter table api_partners enable row level security; -- sin policies → solo ser
 -- Colaborador #1 = nuestra propia plataforma. Es el `source` por defecto de los
 -- reportes propios y el colaborador que recibe la primera API key (la key se
 -- emite por el flujo de minteo, fuera del SQL).
-insert into api_partners (name, source)
-  values ('Venezuela Ayuda', 'venezuela-ayuda.com')
+--
+-- El id es FIJO y conocido (no gen_random_uuid): la escritura interna del sitio
+-- (server actions) pasa por las mismas RPC del API y necesita este partner_id sin
+-- leer la DB. El MISMO uuid vive en src/lib/canonical.mjs (VA_PARTNER_ID) — única
+-- fuente de verdad compartida entre el seed y el código.
+insert into api_partners (id, name, source)
+  values ('11111111-1111-4111-8111-111111111111', 'Venezuela Ayuda', 'venezuela-ayuda.com')
   on conflict (source) do nothing;
 
 -- Completar columnas multi-fuente en help_offers ---------------------------

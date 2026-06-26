@@ -22,6 +22,8 @@ import {
   type RiskAnswer,
 } from "@/lib/constants";
 import { computeRisk, type RiskAnswers } from "@/lib/risk";
+import { VA_SOURCE } from "@/lib/canonical.mjs";
+import { ingestArgs, patchArgs, buildCenterRow } from "@/lib/internalWrite.mjs";
 import type { Sighting, RequestResponse } from "@/lib/types";
 
 export type ActionState = {
@@ -105,19 +107,29 @@ export async function submitCheckin(
   try {
     const supabase = getServerSupabase();
     const photoUrl = await uploadCheckinPhoto(supabase, id, form.get("photo_data"));
-    const { error } = await supabase.from("checkins").insert({
-      id,
-      name,
-      status,
-      city: cleanOptional(form.get("city"), LIMITS.city),
-      latitude: coords?.lat ?? null,
-      longitude: coords?.lng ?? null,
-      message: cleanOptional(form.get("message"), LIMITS.message),
-      phone_private: cleanOptional(form.get("phone"), LIMITS.phone),
-      place_name: cleanOptional(form.get("place_name"), LIMITS.place_name),
-      photo_url: photoUrl,
-      manage_token: manageToken,
-    });
+    // Escritura interna por la MISMA RPC del API externo (audita CREATE + atribuye
+    // a venezuela-ayuda.com). El id lo generamos acá (lo necesita el path de la
+    // foto y el redirect); la RPC lo inserta y lo devuelve. external_id va null →
+    // (source, external_id) NULLS DISTINCT → insert, no upsert.
+    const { error } = await supabase.rpc(
+      "ingest_reports",
+      ingestArgs("checkins", [
+        {
+          id,
+          source: VA_SOURCE,
+          name,
+          status,
+          city: cleanOptional(form.get("city"), LIMITS.city),
+          latitude: coords?.lat ?? null,
+          longitude: coords?.lng ?? null,
+          message: cleanOptional(form.get("message"), LIMITS.message),
+          phone_private: cleanOptional(form.get("phone"), LIMITS.phone),
+          place_name: cleanOptional(form.get("place_name"), LIMITS.place_name),
+          photo_url: photoUrl,
+          manage_token: manageToken,
+        },
+      ])
+    );
     if (error) throw error;
   } catch {
     return {
@@ -162,19 +174,25 @@ export async function submitHelpRequest(
   const manageToken = crypto.randomUUID();
   try {
     const supabase = getServerSupabase();
-    const { error } = await supabase.from("help_requests").insert({
-      id,
-      category,
-      description,
-      urgency,
-      city: cleanOptional(form.get("city"), LIMITS.city),
-      latitude: coords?.lat ?? null,
-      longitude: coords?.lng ?? null,
-      contact: cleanOptional(form.get("contact"), LIMITS.phone),
-      place_name: cleanOptional(form.get("place_name"), LIMITS.place_name),
-      items: items.length ? items : null,
-      manage_token: manageToken,
-    });
+    const { error } = await supabase.rpc(
+      "ingest_reports",
+      ingestArgs("help_requests", [
+        {
+          id,
+          source: VA_SOURCE,
+          category,
+          description,
+          urgency,
+          city: cleanOptional(form.get("city"), LIMITS.city),
+          latitude: coords?.lat ?? null,
+          longitude: coords?.lng ?? null,
+          contact: cleanOptional(form.get("contact"), LIMITS.phone),
+          place_name: cleanOptional(form.get("place_name"), LIMITS.place_name),
+          items: items.length ? items : null,
+          manage_token: manageToken,
+        },
+      ])
+    );
     if (error) throw error;
   } catch {
     return {
@@ -236,21 +254,27 @@ export async function submitDamagedReport(
   try {
     const supabase = getServerSupabase();
     const photoUrl = await uploadCheckinPhoto(supabase, id, form.get("photo_data"));
-    const { error } = await supabase.from("damaged_reports").insert({
-      id,
-      place_name,
-      description: cleanOptional(form.get("description"), LIMITS.description),
-      severity,
-      city: cleanOptional(form.get("city"), LIMITS.city),
-      latitude: coords?.lat ?? null,
-      longitude: coords?.lng ?? null,
-      contact: cleanOptional(form.get("contact"), LIMITS.phone),
-      photo_url: photoUrl,
-      manage_token: manageToken,
-      risk_level: risk?.level ?? null,
-      risk_priority: risk?.priority ?? null,
-      risk_answers: riskAnswers,
-    });
+    const { error } = await supabase.rpc(
+      "ingest_reports",
+      ingestArgs("damaged_reports", [
+        {
+          id,
+          source: VA_SOURCE,
+          place_name,
+          description: cleanOptional(form.get("description"), LIMITS.description),
+          severity,
+          city: cleanOptional(form.get("city"), LIMITS.city),
+          latitude: coords?.lat ?? null,
+          longitude: coords?.lng ?? null,
+          contact: cleanOptional(form.get("contact"), LIMITS.phone),
+          photo_url: photoUrl,
+          manage_token: manageToken,
+          risk_level: risk?.level ?? null,
+          risk_priority: risk?.priority ?? null,
+          risk_answers: riskAnswers,
+        },
+      ])
+    );
     if (error) throw error;
   } catch {
     return {
@@ -285,15 +309,21 @@ export async function submitHelpOffer(
 
   try {
     const supabase = getServerSupabase();
-    const { error } = await supabase.from("help_offers").insert({
-      category,
-      description: cleanOptional(form.get("description"), LIMITS.description),
-      city,
-      latitude: coords?.lat ?? null,
-      longitude: coords?.lng ?? null,
-      availability: cleanOptional(form.get("availability"), LIMITS.availability),
-      contact: cleanOptional(form.get("contact"), LIMITS.phone),
-    });
+    const { error } = await supabase.rpc(
+      "ingest_reports",
+      ingestArgs("help_offers", [
+        {
+          source: VA_SOURCE,
+          category,
+          description: cleanOptional(form.get("description"), LIMITS.description),
+          city,
+          latitude: coords?.lat ?? null,
+          longitude: coords?.lng ?? null,
+          availability: cleanOptional(form.get("availability"), LIMITS.availability),
+          contact: cleanOptional(form.get("contact"), LIMITS.phone),
+        },
+      ])
+    );
     if (error) throw error;
   } catch {
     return {
@@ -347,10 +377,12 @@ export async function markCheckinFound(
     return { ok: false, error: "No autorizado." };
   try {
     const supabase = getServerSupabase();
-    const { error } = await supabase
-      .from("checkins")
-      .update({ found_at: found ? new Date().toISOString() : null })
-      .eq("id", id);
+    const { error } = await supabase.rpc(
+      "patch_report",
+      patchArgs("checkins", id, {
+        found_at: found ? new Date().toISOString() : null,
+      })
+    );
     if (error) throw error;
   } catch {
     return { ok: false, error: "No se pudo actualizar. Intenta de nuevo." };
@@ -375,10 +407,10 @@ export async function resolveHelpRequest(
     return { ok: false, error: "No autorizado." };
   try {
     const supabase = getServerSupabase();
-    const { error } = await supabase
-      .from("help_requests")
-      .update({ status: resolved ? "RESOLVED" : "OPEN" })
-      .eq("id", id);
+    const { error } = await supabase.rpc(
+      "patch_report",
+      patchArgs("help_requests", id, { status: resolved ? "RESOLVED" : "OPEN" })
+    );
     if (error) throw error;
   } catch {
     return { ok: false, error: "No se pudo actualizar. Intenta de nuevo." };
@@ -403,10 +435,10 @@ export async function resolveDamagedReport(
     return { ok: false, error: "No autorizado." };
   try {
     const supabase = getServerSupabase();
-    const { error } = await supabase
-      .from("damaged_reports")
-      .update({ status: resolved ? "RESOLVED" : "OPEN" })
-      .eq("id", id);
+    const { error } = await supabase.rpc(
+      "patch_report",
+      patchArgs("damaged_reports", id, { status: resolved ? "RESOLVED" : "OPEN" })
+    );
     if (error) throw error;
   } catch {
     return { ok: false, error: "No se pudo actualizar. Intenta de nuevo." };
@@ -570,31 +602,35 @@ export async function submitCollectionCenter(
   const volRaw = parseInt(String(form.get("volunteers_count") || ""), 10);
   const volunteersCount =
     Number.isFinite(volRaw) && volRaw >= 0 ? Math.min(volRaw, 100000) : null;
-  const needs = ["centro-de-acopio", ...(needsVolunteers ? ["voluntarios"] : [])];
 
   try {
     const supabase = getServerSupabase();
-    const { error } = await supabase.from("collection_centers").insert({
-      name,
-      country,
-      state: cleanOptional(form.get("state"), LIMITS.city),
-      city: cleanOptional(form.get("city"), LIMITS.city),
-      address: cleanOptional(form.get("address"), 200),
-      latitude: coords?.lat ?? null,
-      longitude: coords?.lng ?? null,
-      resources: cleanOptional(form.get("resources"), LIMITS.description),
-      organizers: cleanOptional(form.get("organizers"), LIMITS.name),
-      contact: cleanOptional(form.get("contact"), 120),
-      website: cleanOptional(form.get("website"), 500),
-      can_ship_to_venezuela: canShip,
-      volunteers_count: volunteersCount,
-      needs_volunteers: needsVolunteers,
-      needs,
-      verified: false,
-      hidden: false,
-      manage_token: crypto.randomUUID(),
-      source: "user",
-    });
+    // Insert vía la MISMA RPC (audita CREATE). collection_centers no tiene
+    // external_id → la RPC hace insert simple por id. `source: 'user'` (origen de
+    // la fila) lo pone buildCenterRow; la atribución del actor (venezuela-ayuda.com)
+    // viaja aparte en el audit.
+    const { error } = await supabase.rpc(
+      "ingest_reports",
+      ingestArgs("collection_centers", [
+        buildCenterRow({
+          name,
+          country,
+          state: cleanOptional(form.get("state"), LIMITS.city),
+          city: cleanOptional(form.get("city"), LIMITS.city),
+          address: cleanOptional(form.get("address"), 200),
+          latitude: coords?.lat ?? null,
+          longitude: coords?.lng ?? null,
+          resources: cleanOptional(form.get("resources"), LIMITS.description),
+          organizers: cleanOptional(form.get("organizers"), LIMITS.name),
+          contact: cleanOptional(form.get("contact"), 120),
+          website: cleanOptional(form.get("website"), 500),
+          can_ship_to_venezuela: canShip,
+          volunteers_count: volunteersCount,
+          needs_volunteers: needsVolunteers,
+          manage_token: crypto.randomUUID(),
+        }),
+      ])
+    );
     if (error) throw error;
   } catch {
     return {

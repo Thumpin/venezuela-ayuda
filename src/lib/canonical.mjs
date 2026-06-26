@@ -8,6 +8,15 @@
 // otro lado — agregá un valor acá y todo lo demás lo hereda. El test de paridad
 // (scripts/canonical.test.mjs) falla si las claves de constants.ts divergen.
 
+// Identidad de NUESTRA propia plataforma como socio del hub. La escritura interna
+// del sitio (server actions) pasa por las MISMAS RPC que el API externo, atribuida
+// a este socio → toda mutación (interna o externa) queda auditada y atribuida
+// uniformemente. El id es FIJO y conocido: idéntico acá y en el seed de la
+// migración 0015 (`api_partners`), para que el partner_id no dependa de leer la DB.
+// VA_SOURCE es el `source` que ya estampan por DEFAULT las 4 tablas de reporte.
+export const VA_PARTNER_ID = "11111111-1111-4111-8111-111111111111";
+export const VA_SOURCE = "venezuela-ayuda.com";
+
 export const HELP_CATEGORIES = ["medical", "food", "water", "shelter", "transportation", "electricity", "rescue", "tools"];
 export const OFFER_CATEGORIES = ["transportation", "food", "shelter", "medical", "supplies", "translation"];
 export const URGENCY = ["LOW", "MEDIUM", "HIGH", "CRITICAL"];

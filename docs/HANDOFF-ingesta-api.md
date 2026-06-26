@@ -47,6 +47,46 @@ Recurso único: **`reports`**. El `id` (uuid global) es la identidad estable; el
 
 ---
 
+## 1.1 Escritura interna auditada (nuestra plataforma como socio)
+
+El hub tenía dos mundos de escritura desacoplados: el **API externo** (socios)
+escribía vía las RPC atómicas → auditado y atribuido; pero la **escritura interna**
+del sitio (los server actions de `src/app/actions.ts` y `src/app/admin/actions.ts`)
+escribía **directo** a las tablas (`.from(t).insert/update/delete`) → **sin
+audit_log** y sin partner atribuido.
+
+A partir de la migración `0018`, **toda escritura interna pasa por las MISMAS RPC**
+(`ingest_reports` / `patch_report` / `delete_report`) que usa el API externo,
+atribuida a **nuestra propia plataforma como un socio más**:
+
+- **Somos el socio `venezuela-ayuda.com`**, con un **id FIJO**:
+  `11111111-1111-4111-8111-111111111111`. Vive en el seed de `0015`
+  (`api_partners`) y en `src/lib/canonical.mjs` (`VA_PARTNER_ID` / `VA_SOURCE`) —
+  única fuente de verdad, sin leer la DB para resolver el partner_id.
+- Cada server action arma la fila/patch ya validado y llama la RPC con
+  `p_partner = VA_PARTNER_ID`, `p_source = VA_SOURCE`. El contexto forense
+  (`request_id`/`ip`/`user_agent`) va `null` (un server action no tiene `Request`).
+  El armado de parámetros es puro y testeado en `src/lib/internalWrite.mjs`.
+- Resultado: **toda mutación —interna o externa— deja su evento en `audit_log`**
+  (CREATE/UPDATE/DELETE), atribuible y reversible igual.
+
+Dos extensiones en `0018` para cubrir TODO el CRUD interno:
+
+- **`collection_centers`** entra en `ingest_reports`/`patch_report`. La tabla **no
+  tiene `external_id`** ni el conflict target `(source, external_id)` de las 4
+  tablas de reporte → su insert es **simple por id** (cada postulación es fila
+  nueva, sin upsert idempotente); el update por id ya era genérico. Ojo: su columna
+  `source` mantiene su semántica propia (`'seed'|'user'`) — la atribución del actor
+  (`venezuela-ayuda.com`) viaja en el evento de audit, no en la fila.
+- **`DELETE`**: el admin borra de verdad reportes y centros. Nueva RPC
+  `delete_report` que captura el snapshot `before`, borra, y audita `action=DELETE`
+  (`after=null`) en la misma transacción. Cubre las 4 tablas de reporte +
+  `collection_centers`.
+
+Sin cambios en el **API externo** ni en el contrato OpenAPI: esto es interno.
+
+---
+
 ## 2. Esquema que proponemos
 
 No cambiamos las tablas existentes. Solo agregamos:
@@ -448,6 +488,7 @@ Para integrar a un socio: el admin lo da de alta en el panel y le entrega su key
 |---|---|---|
 | 1 | Migración `0015` — `api_partners` + columnas en `help_offers` + índices únicos | DB |
 | 1b | Migración `0016` — `audit_log` append-only + RPC atómicas `ingest_reports`/`patch_report` | DB |
+| 1c | Migración `0018` — escritura interna por las mismas RPC: `collection_centers` + `delete_report` (action DELETE), socio propio con id fijo | DB |
 | 2 | Auth por API key (hash + lookup) | backend |
 | 3 | `POST /api/v1/reports` (cerrado por key, upsert idempotente, atribución `source`, audita CREATE) | endpoint |
 | 3b | `PATCH /api/v1/reports/{id}` (cerrado por key, audita UPDATE) + `GET /{id}` + `GET /{id}/history` | endpoint |

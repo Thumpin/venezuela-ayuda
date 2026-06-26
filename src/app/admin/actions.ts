@@ -6,6 +6,7 @@ import { getAuthClient } from "@/lib/supabase/auth";
 import { getServerSupabase, isSupabaseConfigured } from "@/lib/supabase/server";
 import { getAdminEmail, isEmailAdmin } from "@/lib/admin";
 import { generateApiKey, hashKey, parsePrefix } from "@/lib/apiAuth.mjs";
+import { patchArgs, deleteArgs } from "@/lib/internalWrite.mjs";
 
 export type AuthState = { error?: string };
 type Result = { ok: boolean; error?: string };
@@ -89,13 +90,13 @@ export async function verifyDamagedReport(id: string, verified: boolean): Promis
   }
   if (!UUID_RE.test(id)) return { ok: false, error: "Id inválido." };
   const svc = getServerSupabase();
-  const { error } = await svc
-    .from("damaged_reports")
-    .update({
+  const { error } = await svc.rpc(
+    "patch_report",
+    patchArgs("damaged_reports", id, {
       verified_at: verified ? new Date().toISOString() : null,
       verified_by: verified ? email : null,
     })
-    .eq("id", id);
+  );
   if (error) return { ok: false, error: "No se pudo actualizar." };
   revalidatePath("/mapa");
   revalidatePath(`/edificio/${id}`);
@@ -112,7 +113,7 @@ export async function setHidden(table: string, id: string, hidden: boolean): Pro
   if (!MODERATABLE.has(table) || !UUID_RE.test(id))
     return { ok: false, error: "Solicitud inválida." };
   const svc = getServerSupabase();
-  const { error } = await svc.from(table).update({ hidden }).eq("id", id);
+  const { error } = await svc.rpc("patch_report", patchArgs(table, id, { hidden }));
   if (error) return { ok: false, error: "No se pudo actualizar." };
   revalidatePath("/mapa");
   revalidatePath("/buscar");
@@ -129,7 +130,7 @@ export async function deleteReport(table: string, id: string): Promise<Result> {
   if (!MODERATABLE.has(table) || !UUID_RE.test(id))
     return { ok: false, error: "Solicitud inválida." };
   const svc = getServerSupabase();
-  const { error } = await svc.from(table).delete().eq("id", id);
+  const { error } = await svc.rpc("delete_report", deleteArgs(table, id));
   if (error) return { ok: false, error: "No se pudo eliminar." };
   revalidatePath("/mapa");
   revalidatePath("/buscar");
@@ -146,7 +147,7 @@ export async function verifyCenter(id: string, verified: boolean): Promise<Resul
   }
   if (!UUID_RE.test(id)) return { ok: false, error: "Id inválido." };
   const svc = getServerSupabase();
-  const { error } = await svc.from("collection_centers").update({ verified }).eq("id", id);
+  const { error } = await svc.rpc("patch_report", patchArgs("collection_centers", id, { verified }));
   if (error) return { ok: false, error: "No se pudo actualizar." };
   revalidatePath("/mapa");
   revalidatePath("/ayudar-fuera");
@@ -162,7 +163,7 @@ export async function setCenterHidden(id: string, hidden: boolean): Promise<Resu
   }
   if (!UUID_RE.test(id)) return { ok: false, error: "Id inválido." };
   const svc = getServerSupabase();
-  const { error } = await svc.from("collection_centers").update({ hidden }).eq("id", id);
+  const { error } = await svc.rpc("patch_report", patchArgs("collection_centers", id, { hidden }));
   if (error) return { ok: false, error: "No se pudo actualizar." };
   revalidatePath("/mapa");
   revalidatePath("/ayudar-fuera");
@@ -178,7 +179,7 @@ export async function deleteCenter(id: string): Promise<Result> {
   }
   if (!UUID_RE.test(id)) return { ok: false, error: "Id inválido." };
   const svc = getServerSupabase();
-  const { error } = await svc.from("collection_centers").delete().eq("id", id);
+  const { error } = await svc.rpc("delete_report", deleteArgs("collection_centers", id));
   if (error) return { ok: false, error: "No se pudo eliminar." };
   revalidatePath("/mapa");
   revalidatePath("/ayudar-fuera");
@@ -226,7 +227,7 @@ export async function updateCenter(
   if (Object.keys(update).length === 0) return { ok: true };
 
   const svc = getServerSupabase();
-  const { error } = await svc.from("collection_centers").update(update).eq("id", id);
+  const { error } = await svc.rpc("patch_report", patchArgs("collection_centers", id, update));
   if (error) return { ok: false, error: "No se pudo guardar." };
   revalidatePath("/mapa");
   revalidatePath("/ayudar-fuera");
