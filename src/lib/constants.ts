@@ -1,5 +1,17 @@
 // Shared domain constants. Spanish labels live here so the whole UI stays
 // consistent and translation is a single source of truth.
+//
+// The KEYS of the metadata objects below (categories/statuses/severities) are
+// the canonical enum values — single-sourced in ./canonical.mjs and consumed by
+// the non-TS ingest pipeline too. These objects keep their `as const` metadata
+// (the UI needs the literal label/emoji/color types); the canonical arrays own
+// the value list. scripts/canonical.test.mjs is the drift guard: it fails if any
+// object's key set diverges from its canonical array. (A compile-time guard was
+// tried but TS widens the JSDoc-`const` arrays inconsistently across sizes, so
+// it gave false confidence — the runtime test is the honest mechanical check.)
+// LIMITS below is derived directly (re-exported, not redefined).
+
+import * as CANONICAL from "./canonical.mjs";
 
 // `pin` = solid color used on the map. `tintBg`/`tintText` = the soft-tint badge
 // style from the design system (calm, never saturated full-bleed).
@@ -189,15 +201,6 @@ export const VENEZUELA_CENTER = { lng: -66.9, lat: 10.0 };
 export const DEFAULT_ZOOM = 6;
 
 // Input limits — keep payloads small for slow connections and cap abuse.
-export const LIMITS = {
-  name: 80,
-  city: 80,
-  message: 500,
-  description: 800,
-  phone: 30,
-  availability: 200,
-  place_name: 120,
-  itemName: 40,
-  maxItems: 25,
-  maxQty: 999,
-} as const;
+// Single-sourced in ./canonical.mjs so the TS UI and the non-TS ingest pipeline
+// clamp identically. Re-exported (not redefined) to avoid drift.
+export const LIMITS = CANONICAL.LIMITS;

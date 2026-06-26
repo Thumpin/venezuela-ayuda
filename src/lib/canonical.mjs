@@ -1,0 +1,34 @@
+// Única fuente de verdad para los valores canónicos del dominio: enums de
+// categorías/estados y límites de longitud de inputs. JS puro, sin deps, para
+// que lo importen tanto el TS (vía allowJs) como los tests de `node --test`.
+//
+// constants.ts mantiene objetos de metadata (labels/emojis/colores de UI) cuyas
+// CLAVES deben ser exactamente estos arrays, y re-exporta LIMITS desde acá;
+// ingest.mjs consume estos arrays directo. No dupliques estas listas en ningún
+// otro lado — agregá un valor acá y todo lo demás lo hereda. El test de paridad
+// (scripts/canonical.test.mjs) falla si las claves de constants.ts divergen.
+
+export const HELP_CATEGORIES = ["medical", "food", "water", "shelter", "transportation", "electricity", "rescue", "tools"];
+export const OFFER_CATEGORIES = ["transportation", "food", "shelter", "medical", "supplies", "translation"];
+export const URGENCY = ["LOW", "MEDIUM", "HIGH", "CRITICAL"];
+export const SEVERITY = ["CRACKS", "PARTIAL", "COLLAPSE_RISK", "COLLAPSED"];
+export const CHECKIN_STATUS = ["SAFE", "NEEDS_HELP", "LOOKING_FOR_SOMEONE"];
+export const REQUEST_STATUS = ["OPEN", "IN_PROGRESS", "RESOLVED"];
+
+// Límites de longitud de inputs. Unión de los campos que necesitan el TS (UI:
+// itemName/maxItems/maxQty) y la ingesta (source_url/photo_url). Mantener acá
+// para que clamp y validación nunca diverjan.
+export const LIMITS = {
+  name: 80,
+  city: 80,
+  message: 500,
+  description: 800,
+  phone: 30,
+  availability: 200,
+  place_name: 120,
+  source_url: 500,
+  photo_url: 500,
+  itemName: 40,
+  maxItems: 25,
+  maxQty: 999,
+};

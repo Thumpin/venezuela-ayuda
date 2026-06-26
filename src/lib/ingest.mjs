@@ -5,19 +5,19 @@
 //
 // Espeja las reglas de src/lib/validation.ts (clamp de longitud, control chars,
 // bounding box VE). No lo importa porque validation.ts es TS y este módulo lo
-// carga `node --test`. Reusa fuzzyKey de scripts/dedup-lib.mjs para dedup_key.
+// carga `node --test`. Enums y límites vienen de canonical.mjs (única fuente de
+// verdad, compartida con constants.ts). Reusa fuzzyKey de dedup-lib.mjs.
 
 import { fuzzyKey } from "../../scripts/dedup-lib.mjs";
-
-// Enums canónicos (espejo de src/lib/constants.ts).
-const HELP_CATEGORIES = ["medical", "food", "water", "shelter", "transportation", "electricity", "rescue", "tools"];
-const OFFER_CATEGORIES = ["transportation", "food", "shelter", "medical", "supplies", "translation"];
-const URGENCY = ["LOW", "MEDIUM", "HIGH", "CRITICAL"];
-const SEVERITY = ["CRACKS", "PARTIAL", "COLLAPSE_RISK", "COLLAPSED"];
-const CHECKIN_STATUS = ["SAFE", "NEEDS_HELP", "LOOKING_FOR_SOMEONE"];
-const REQUEST_STATUS = ["OPEN", "IN_PROGRESS", "RESOLVED"];
-
-const LIMITS = { name: 80, city: 80, message: 500, description: 800, phone: 30, availability: 200, place_name: 120, source_url: 500, photo_url: 500 };
+import {
+  HELP_CATEGORIES,
+  OFFER_CATEGORIES,
+  URGENCY,
+  SEVERITY,
+  CHECKIN_STATUS,
+  REQUEST_STATUS,
+  LIMITS,
+} from "./canonical.mjs";
 
 const CONTROL = new RegExp("[\\u0000-\\u0008\\u000B\\u000C\\u000E-\\u001F\\u007F]", "g");
 const VE = { minLat: 0, maxLat: 16, minLng: -74, maxLng: -59 };
