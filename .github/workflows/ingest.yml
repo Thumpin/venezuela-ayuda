@@ -1,0 +1,32 @@
+name: Dedup cleanup
+
+# Corre el dedup fuzzy cross-fuente sobre la data existente (idempotente, no
+# destructivo salvo colapsar duplicados con confianza alta).
+#
+# El PULL (scrape de sitios hermanos) se RETIRÓ: el hub es push-only — los socios
+# reportan vía POST /api/v1/ingest. Este cron conserva el ÚNICO proceso de dedup
+# que corre hoy, hasta que el proceso de dedup dedicado (otro equipo) lo reemplace.
+# No borrar sin confirmar que el reemplazo está corriendo en producción.
+on:
+  schedule:
+    - cron: "0 * * * *" # cada hora
+  workflow_dispatch: {} # también manual desde la pestaña Actions
+
+concurrency:
+  group: dedup
+  cancel-in-progress: false
+
+jobs:
+  dedup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+      SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Fuzzy dedup cleanup
+        run: node scripts/ingest.mjs --dedup
