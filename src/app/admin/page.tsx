@@ -44,6 +44,12 @@ export default async function AdminPage() {
           </div>
           <div className="flex items-center gap-2">
             <Link
+              href="/admin/duplicados"
+              className="rounded-lg border border-[#e6ecf2] px-3 py-2 text-sm font-medium text-[#14212e] transition hover:bg-slate-50"
+            >
+              Duplicados
+            </Link>
+            <Link
               href="/admin/admins"
               className="rounded-lg border border-[#e6ecf2] px-3 py-2 text-sm font-medium text-[#14212e] transition hover:bg-slate-50"
             >

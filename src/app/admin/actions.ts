@@ -135,6 +135,57 @@ export async function deleteReport(table: string, id: string): Promise<Result> {
   return { ok: true };
 }
 
+// --- Dedup review (merge_candidates) -----------------------------------------
+// Human decision on a duplicate pair. "duplicate" hides the dup checkin (NEVER
+// deletes — a wrong call is recoverable by un-hiding) and marks the candidate
+// MERGED; "not" marks it REJECTED so it won't resurface. Both record who/when.
+export async function decideMerge(
+  candidateId: string,
+  decision: "duplicate" | "not",
+): Promise<Result> {
+  let email: string;
+  try {
+    email = await requireAdmin();
+  } catch {
+    return { ok: false, error: "No autorizado." };
+  }
+  if (!UUID_RE.test(candidateId)) return { ok: false, error: "Id inválido." };
+
+  const svc = getServerSupabase();
+  // Load the candidate (we need dup_id when confirming a merge).
+  const { data: cand, error: loadErr } = await svc
+    .from("merge_candidates")
+    .select("id,dup_id,status")
+    .eq("id", candidateId)
+    .maybeSingle();
+  if (loadErr || !cand) return { ok: false, error: "No se encontró el candidato." };
+  if (cand.status !== "PENDING") return { ok: false, error: "Ya fue revisado." };
+
+  if (decision === "duplicate") {
+    // Retire the duplicate by hiding it (reversible), keeping the richer row.
+    const { error: hideErr } = await svc
+      .from("checkins")
+      .update({ hidden: true })
+      .eq("id", cand.dup_id);
+    if (hideErr) return { ok: false, error: "No se pudo ocultar el duplicado." };
+  }
+
+  const { error: updErr } = await svc
+    .from("merge_candidates")
+    .update({
+      status: decision === "duplicate" ? "MERGED" : "REJECTED",
+      decided_by: email,
+      decided_at: new Date().toISOString(),
+    })
+    .eq("id", candidateId);
+  if (updErr) return { ok: false, error: "No se pudo guardar la decisión." };
+
+  revalidatePath("/admin/duplicados");
+  revalidatePath("/mapa");
+  revalidatePath("/buscar");
+  return { ok: true };
+}
+
 // --- Manage admins -----------------------------------------------------------
 export async function addAdmin(email: string): Promise<Result> {
   let me: string;

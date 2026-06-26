@@ -73,6 +73,79 @@ export interface ModerationItem {
   created_at: string;
 }
 
+// --- Dedup review queue (merge_candidates) -----------------------------------
+// One checkin as shown side-by-side in the duplicate review UI.
+export interface MergeSide {
+  id: string;
+  name: string;
+  city: string | null;
+  place_name: string | null;
+  message: string | null;
+  photo_url: string | null;
+  has_phone: boolean;
+  source: string | null;
+  created_at: string;
+}
+
+export interface MergeCandidate {
+  id: string;
+  tier: "HARD" | "STRONG" | "REVIEW";
+  confidence: number;
+  reason: string;
+  evidence: Record<string, unknown> | null;
+  keep: MergeSide;
+  dup: MergeSide;
+}
+
+// Pending duplicate pairs for human review, highest tier + confidence first.
+// Fetches both checkins of each pair so the UI can show them side by side.
+// phone_private is reduced to a boolean (never expose the number in the UI).
+export async function listMergeCandidates(limit = 50): Promise<MergeCandidate[]> {
+  const svc = getServerSupabase();
+  const { data: cands, error: candErr } = await svc
+    .from("merge_candidates")
+    .select("id,tier,confidence,reason,evidence,keep_id,dup_id")
+    .eq("status", "PENDING")
+    .eq("table_name", "checkins")
+    .order("confidence", { ascending: false })
+    .limit(limit);
+  if (candErr || !cands?.length) return [];
+
+  // Fetch every referenced checkin in one query.
+  const ids = Array.from(new Set(cands.flatMap((c) => [c.keep_id, c.dup_id])));
+  const { data: rows } = await svc
+    .from("checkins")
+    .select("id,name,city,place_name,message,photo_url,phone_private,source,created_at")
+    .in("id", ids);
+  const byId = new Map<string, MergeSide>();
+  for (const r of rows ?? [])
+    byId.set(r.id, {
+      id: r.id,
+      name: r.name,
+      city: r.city ?? null,
+      place_name: r.place_name ?? null,
+      message: r.message ?? null,
+      photo_url: r.photo_url ?? null,
+      has_phone: Boolean(r.phone_private),
+      source: r.source ?? null,
+      created_at: r.created_at,
+    });
+
+  const tierRank: Record<string, number> = { HARD: 0, STRONG: 1, REVIEW: 2 };
+  return cands
+    .map((c) => ({
+      id: c.id,
+      tier: c.tier as MergeCandidate["tier"],
+      confidence: c.confidence,
+      reason: c.reason,
+      evidence: c.evidence ?? null,
+      keep: byId.get(c.keep_id)!,
+      dup: byId.get(c.dup_id)!,
+    }))
+    .filter((c) => c.keep && c.dup)
+    .sort((a, b) => tierRank[a.tier] - tierRank[b.tier] || b.confidence - a.confidence);
+}
+
 // Recent community submissions across the three tables for spam/false-report
 // moderation. Includes hidden rows so admins can un-hide.
 export async function listModerationItems(): Promise<ModerationItem[]> {

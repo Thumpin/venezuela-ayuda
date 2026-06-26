@@ -11,6 +11,7 @@
 
 import { readFileSync } from "node:fs";
 import { norm, personKey } from "./dedup-lib.mjs";
+import { scrubContactPII } from "./scrub-pii.mjs";
 
 const DRY = process.argv.includes("--dry");
 const DEDUP = process.argv.includes("--dedup"); // run the fuzzy dedup cleanup pass
@@ -419,6 +420,27 @@ async function main() {
       console.log(`FAILED  ${name}: ${e.message}`);
     }
   }
+
+  // Scrub PII from free text BEFORE anything reads it (public views + the
+  // embedding in migration 0015). Phones / cédulas must never reach either.
+  // `checkins.message` and `damaged_reports.description` are the free-text
+  // fields; if the scrub recovers a phone and the private field is empty, we
+  // relocate it there (public→private, never lost). Idempotent + safe on null.
+  let scrubbedText = 0, recoveredPhone = 0;
+  for (const rec of all) {
+    const field = rec.table === "checkins" ? "message"
+      : rec.table === "damaged_reports" ? "description" : null;
+    if (!field || !rec.row[field]) continue;
+    const { clean, phone } = scrubContactPII(rec.row[field]);
+    if (clean !== rec.row[field]) scrubbedText++;
+    rec.row[field] = clean;
+    // Recover a phone only into an empty private field (don't overwrite a real one).
+    if (phone && rec.table === "checkins" && !rec.row.phone_private) {
+      rec.row.phone_private = phone.slice(0, 30);
+      recoveredPhone++;
+    }
+  }
+  console.log(`scrubbed PII from ${scrubbedText} text field(s); recovered ${recoveredPhone} phone(s) into private`);
 
   // Dedup: external_id (idempotency) + dedup_key (cross-source).
   const seenExt = {
