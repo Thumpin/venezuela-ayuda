@@ -37,8 +37,9 @@ que generamos/entregamos, y la **documentación (OpenAPI + Swagger)**.
 
 - **Hub:** `venezuela-ayuda` es el hub central oficial. Su Supabase/Postgres es la
   única fuente de verdad.
-- **Modelo:** **push-only.** Todos reportan vía `POST /api/ingest` con su key. El
-  pull (`scripts/ingest.mjs` + workflow) se retira (U9).
+- **Modelo:** **push-only.** Todos reportan vía `POST /api/v1/ingest` con su key. El
+  scrape/pull se retira (U9); el **cron de dedup cross-fuente se conserva** (mismo
+  workflow, renombrado "Dedup cleanup") hasta que otro equipo lo reemplace.
 - **Escritura:** requiere API key por socio (nosotros la generamos/entregamos).
 - **Lectura:** abierta, vía el endpoint que **ya existe** (vistas `public_*` por
   Supabase REST). No se toca.
@@ -51,7 +52,7 @@ que generamos/entregamos, y la **documentación (OpenAPI + Swagger)**.
    ruta de escritura anónima (las server actions son solo para los forms del
    sitio; `0013` revocó el anon).
 2. **Atribución obligatoria en TODA fila** (no solo las ingestadas):
-   - Vía `/api/ingest`: `source` = identidad del socio, **estampada desde la key,
+   - Vía `/api/v1/ingest`: `source` = identidad del socio, **estampada desde la key,
      nunca desde el body** (no spoofeable).
    - Reportes propios (forms del sitio): `source` = `venezuela-ayuda.com` por
      default de columna (U1) — sin tocar los forms.
@@ -96,11 +97,13 @@ fuera — lo dueña otro equipo.
 - **Lo que damos al equipo de dedup:** seguimos **estampando `dedup_key`**
   (`fuzzyKey(name)`, reusando `scripts/dedup-lib.mjs`) y `source` en cada
   registro. Es "estructurar la data" — nuestra responsabilidad — y es el insumo
-  exacto que ellos necesitan. **No corremos ningún proceso de dedup.**
+  exacto que ellos necesitan. **La ingesta `/api/v1/ingest` no corre dedup**
+  (solo idempotencia exacta). El cron de dedup cross-fuente (`ingest.mjs --dedup`)
+  se conserva como puente operativo (U9) hasta que el equipo de dedup lo reemplace.
 
 ### 2. Reuso máximo en la escritura
 
-`POST /api/ingest` es **delgado**: no transforma, no reinventa.
+`POST /api/v1/ingest` es **delgado**: no transforma, no reinventa.
 - Reusa los helpers de `src/lib/validation.ts` (`cleanText`, `cleanOptional`,
   `parseLatLng`, `normalizePhone`) — la misma validación que ya usan las server
   actions.
@@ -109,11 +112,13 @@ fuera — lo dueña otro equipo.
   solo server-side). Los grants públicos siguen bloqueados.
 - Idempotencia vía upsert (`onConflict: "source,external_id"`).
 
-### 3. Lectura = el endpoint que ya existe
+### 3. Lectura = vistas existentes, con un endpoint propio recomendado
 
-No se construye `/api/reports`. La disponibilidad de datos ya está resuelta por
-las vistas `public_*` expuestas por Supabase REST (`GET /rest/v1/public_*` con la
-publishable key), que es de donde lee el sitio hoy. Solo se **documenta** en el
+La disponibilidad de datos se apoya en las vistas `public_*` que ya existen. La
+vía **recomendada** es un endpoint propio `GET /api/v1/reports` que lee esas vistas
+(un host, cursor estable por `created_at|id`, sin PII). El acceso directo por
+Supabase REST (`GET /rest/v1/public_*` con la publishable key), de donde lee el
+sitio hoy, queda como **alternativa**. Ambas se **documentan** en el
 OpenAPI/README para los socios.
 
 ### 4. API keys: hash en reposo, source estampado, gestionadas desde el panel admin
@@ -132,9 +137,10 @@ OpenAPI/README para los socios.
 
 ### 5. OpenAPI escrito a mano, servido + renderizado
 
-Superficie chica. `openapi.yaml` a mano describe `POST /api/ingest` (nuestro) y
-referencia el read existente (`/rest/v1/public_*`). Se renderiza con Scalar/
-Swagger UI vía CDN en `/docs`. Evita meter Zod + generadores por una ruta.
+Superficie chica. `openapi.yaml` a mano describe `POST /api/v1/ingest` y
+`GET /api/v1/reports` (nuestros), y referencia el acceso directo `/rest/v1/public_*`
+como alternativa. Se renderiza con Scalar/Swagger UI vía CDN en `/docs`. Evita meter
+Zod + generadores por una ruta.
 
 ### 6. Rate limiting: best-effort + tope de batch
 
@@ -165,31 +171,35 @@ Restricción dada: la API será **muy consumida** por muchos sitios.
 ## Impacto en el sistema
 
 ```
-Cliente socio ──(x-api-key + filas canónicas)──▶ POST /api/ingest ─┐
+Cliente socio ──(x-api-key + filas canónicas)──▶ POST /api/v1/ingest ─┐
                                                                    │ service key
-Cliente socio ──(GET, ya existe)──▶ Supabase REST /rest/v1/public_*│
+Cliente socio ──(GET, sin key)──▶ GET /api/v1/reports (recomendado)│
+                       (alternativa) Supabase REST /rest/v1/public_*│
                                                   ▲                ▼
                                                   │           Supabase Postgres
-[PULL RETIRADO: ingest.mjs + ingest.yml]          │ vistas      (tablas existentes)
+[SCRAPE RETIRADO; cron --dedup CONSERVADO]        │ vistas      (tablas existentes)
 [DEDUP FUZZY: otro equipo, misma DB]              │ public_*        ▲
                                                   │  (sin tel.)     │ service key
 /docs (Swagger) ──▶ public/openapi.yaml           └─────────────────┘
 Sitio web actual (Next) ──server actions + data.ts── (sin cambios)
 ```
 
-- **Nuevo:** 1 ruta (`POST /api/ingest`), 1 página `/docs`, 1 spec OpenAPI, 1
-  tabla `api_partners`, 1 script de keys.
+- **Nuevo:** 2 rutas (`POST /api/v1/ingest`, `GET /api/v1/reports`), 1 página
+  `/docs`, 1 spec OpenAPI, 1 tabla `api_partners`, 1 script de keys.
 - **Reusado tal cual:** tablas, vistas `public_*` (read), `validation.ts`,
   `getServerSupabase`, `rateLimit`, `dedup-lib.mjs`.
-- **Se retira:** el pull.
+- **Se retira:** el scrape (pull). El cron de dedup (`--dedup`) se conserva.
 - **Sin cambios** a forms, server actions ni `data.ts` del sitio.
 
 ---
 
 ## Unidades de implementación
 
-> U3 (envelope/mapeo) y U5 (`/api/reports`) fueron **eliminadas** — reinventaban
-> el contrato y la lectura que ya existen. Los U-IDs se conservan con su hueco.
+> U3 (envelope/mapeo) fue **eliminada** — reinventaba el contrato que ya existe.
+> El U-ID se conserva con su hueco. **Actualización:** la lectura propia
+> `GET /api/v1/reports` (originalmente descartada como U5) **sí se construyó** en
+> este PR como vía recomendada (lee las vistas `public_*`, cursor estable, sin PII);
+> el acceso directo por Supabase REST queda como alternativa.
 
 ### U1. Migración 0014 — tabla `api_partners` + índices únicos para upsert
 
@@ -225,7 +235,7 @@ Sitio web actual (Next) ──server actions + data.ts── (sin cambios)
   de origen → no se tocan** (el `where source is null` los respeta).
 - **Default para reportes futuros (sin tocar los forms):** `alter table <t> alter
   column source set default 'venezuela-ayuda.com'` (idem `source_url`) en las 4
-  tablas. Así un submit orgánico nuevo se atribuye solo; `/api/ingest` setea
+  tablas. Así un submit orgánico nuevo se atribuye solo; `/api/v1/ingest` setea
   `source` explícito y **sobrescribe** el default. Cero cambios en server actions.
 - Índices únicos parciales para upsert: `create unique index ... on checkins
   (source, external_id) where source is not null and external_id is not null;` —
@@ -241,7 +251,7 @@ Sitio web actual (Next) ──server actions + data.ts── (sin cambios)
 
 **Verification:** `node scripts/check-migrations.mjs` reporta 0014; existe el
 colaborador `venezuela-ayuda.com` y se le emitió la primera key (autentica en
-`/api/ingest`); tras el backfill **ningún** reporte tiene `source` null, y los
+`/api/v1/ingest`); tras el backfill **ningún** reporte tiene `source` null, y los
 scrapeados conservan su origen; un insert orgánico nuevo queda con
 `source='venezuela-ayuda.com'` por default; un upsert con `(source, external_id)`
 repetido no duplica.
@@ -281,13 +291,13 @@ repetido no duplica.
 
 ---
 
-### U4. Ruta `POST /api/ingest` (delgada, reuso máximo)
+### U4. Ruta `POST /api/v1/ingest` (delgada, reuso máximo)
 
 **Goal:** Puerta de escritura autenticada: el socio envía filas en la forma
 canónica; se validan con los helpers existentes y se hace upsert idempotente.
 **Requirements:** Forma canónica; Decisiones 1, 2, 6.
 **Dependencies:** U1, U2.
-**Files:** `src/app/api/ingest/route.ts`
+**Files:** `src/app/api/v1/ingest/route.ts`
 
 **Approach:**
 - `runtime = "nodejs"`. `authenticatePartner` (U2) → 401 si falla; 403 si sin
@@ -338,10 +348,11 @@ aparece en `GET /rest/v1/public_*` sin contacto; 429 bajo ráfaga.
 **Files:** `public/openapi.yaml`, `src/app/api/openapi/route.ts`
 
 **Approach:**
-- `openapi.yaml` (3.1): `POST /api/ingest` (security apiKey header `x-api-key`,
+- `openapi.yaml` (3.1): `POST /api/v1/ingest` (security apiKey header `x-api-key`,
   request `{reports:[...]}` con los campos canónicos por tipo, responses
-  200/400/401/403/413/429). Sección que **documenta la lectura existente**
-  (`GET /rest/v1/public_*` con la publishable key) — no la reimplementa.
+  200/400/401/403/413/429/503) y `GET /api/v1/reports` (lectura abierta sin PII,
+  `type` requerido, cursor `since`/`next_cursor`). Sección que **documenta el
+  acceso directo** (`GET /rest/v1/public_*` con la publishable key) como alternativa.
 - Documentar privacidad (contacto nunca devuelto), idempotencia (`external_id`),
   rate limits, y cómo obtener una key (contacto del operador).
 - `/api/openapi` sirve el documento crudo.
@@ -415,36 +426,41 @@ revoque sus API keys desde `/admin`, reusando el patrón de gestión de admins.
   `key_hash`/key cruda **nunca** se persisten en claro ni se vuelven a exponer.
 - `listPartners` nunca incluye `key_hash`.
 - `revokePartner` deja `active=false` y `revoked_at` no nulo → esa key da 401 en
-  `/api/ingest`.
+  `/api/v1/ingest`.
 
 **Verification:** desde `/admin/colaboradores` se crea un colaborador, la key se
-muestra una vez y autentica en `/api/ingest`; al revocar, el siguiente request
+muestra una vez y autentica en `/api/v1/ingest`; al revocar, el siguiente request
 da 401.
 
 ---
 
-### U9. Retirar el pull (y ceder el dedup a otro equipo)
+### U9. Retirar el scrape (pull) — conservar el cron de dedup
 
-**Goal:** Hub puro — dejar de extraer de sitios hermanos.
-**Requirements:** Frame (push-only); Decisión 1 (handoff de dedup).
-**Dependencies:** U4 (la write API debe recibir data antes de apagar el pull).
-**Files:** `.github/workflows/ingest.yml` (eliminar), `scripts/ingest.mjs` (retirar).
+**Goal:** Hub push-only — dejar de extraer de sitios hermanos, **sin** apagar el
+dedup cross-fuente (lo seguimos corriendo hasta que otro equipo lo reemplace).
+**Requirements:** Frame (push-only); Decisión 1 (la ingesta no dedupea).
+**Dependencies:** U4 (la write API debe recibir data antes de apagar el scrape).
+**Files:** `.github/workflows/ingest.yml` (editar: quitar scrape, renombrar a
+"Dedup cleanup"), `scripts/ingest.mjs` (quitar la parte de scrape; conservar `--dedup`).
 
 **Approach:**
-- Eliminar el workflow `ingest.yml` (pull horario + paso `--dedup`).
-- Retirar `scripts/ingest.mjs` (verificar imports antes de borrar; conservar solo
-  helpers que algo más use, p.ej. `dedup-lib.mjs`).
-- **Coordinar con el equipo de dedup antes de borrar el cron `--dedup`** — hoy es
-  el único proceso de dedup; confirmar que ellos ya corren el suyo sobre la misma
-  DB o acordar fecha de corte. No tocamos su lógica.
+- En `.github/workflows/ingest.yml`: **quitar el paso de scrape** y dejar el cron
+  horario ejecutando solo `node scripts/ingest.mjs --dedup`. Renombrar el workflow
+  a "Dedup cleanup". **No se borra** el workflow.
+- En `scripts/ingest.mjs`: retirar la lógica de pull/scrape; **conservar** el modo
+  `--dedup` (reusa `dedup-lib.mjs`) que ejecuta el cron.
+- El cron de dedup **se conserva** hasta que un proceso de dedup dedicado de otro
+  equipo lo reemplace; en ese momento se coordina el corte. No tocamos lógica de
+  dedup de otros.
 
 **Patterns to follow:** `.github/workflows/` existentes; `scripts/check-migrations.mjs`
 para verificar dependencias.
 
-**Test scenarios:** `Test expectation: none` — retiro de infra. Verificación por ausencia.
+**Test scenarios:** `Test expectation: none` — cambio de infra. Verificación por
+ausencia del scrape y presencia del cron de dedup.
 
-**Verification:** el workflow ya no corre; data nueva solo entra por `/api/ingest`;
-confirmado el handoff de dedup.
+**Verification:** el scrape ya no corre; data nueva solo entra por `/api/v1/ingest`;
+el cron "Dedup cleanup" sigue corriendo `--dedup` cada hora.
 
 ---
 
@@ -452,7 +468,7 @@ confirmado el handoff de dedup.
 
 ```
 U1 (migración) ──┬─▶ U2 (auth) ──┬─▶ U4 (POST /ingest) ──┬─▶ U6 (OpenAPI) ─▶ U7 (/docs)
-                 │                │                       └─▶ U9 (retirar pull)
+                 │                │                       └─▶ U9 (retirar scrape)
                  │                └─▶ U8 (admin: colaboradores + keys)
                  └──────────────────────────────────────┘
 ```
@@ -460,27 +476,31 @@ U1 (migración) ──┬─▶ U2 (auth) ──┬─▶ U4 (POST /ingest) ─�
 - **Camino crítico para desbloquear socios:** U1 → U2 → U8 (crear colaborador +
   key desde el admin) → U4 (ya pueden publicar).
 - U6/U7 (docs) en paralelo después de U4.
-- U9 (apagar pull) al final, con la write API ya recibiendo y previa coordinación
-  con el equipo de dedup.
+- U9 (retirar el scrape, conservar el cron de dedup) al final, con la write API ya
+  recibiendo.
 - El **dedup fuzzy queda fuera de alcance.**
 
 ---
 
 ## Límites de alcance
 
-**En alcance:** puerta de escritura autenticada (`/api/ingest`), API keys (tabla +
-gestión desde el panel admin existente), OpenAPI + visor, migración de soporte,
-retiro del pull.
+**En alcance:** puerta de escritura autenticada (`/api/v1/ingest`), lectura abierta
+sin PII (`/api/v1/reports`), API keys (tabla + gestión desde el panel admin
+existente), OpenAPI + visor, migración de soporte, retiro del scrape (conservando
+el cron de dedup).
 
 ### Fuera de alcance — lo dueña otro equipo
 
-- **Dedup fuzzy / cross-fuente.** Solo estampamos `source`/`dedup_key`. Coordinar
-  el handoff del cron actual (U9).
+- **Dedup fuzzy / cross-fuente.** La ingesta no dedupea; solo estampamos
+  `source`/`dedup_key`. El cron de dedup (`--dedup`) se conserva como puente (U9)
+  hasta que el equipo de dedup corra el suyo; ahí se coordina el corte.
 
 ### Reusado tal cual (no se reinventa)
 
 - Tablas y columnas existentes (modelo canónico).
-- Lectura: vistas `public_*` por Supabase REST (no se construye `/api/reports`).
+- Lectura: vistas `public_*`. La vía recomendada es el endpoint propio
+  `GET /api/v1/reports` (lee las vistas, cursor estable, sin PII); el acceso directo
+  por Supabase REST queda como alternativa.
 - Validación: `src/lib/validation.ts`. Cliente: `getServerSupabase`. Rate limit:
   `rateLimit.ts`. Dedup key: `dedup-lib.mjs`.
 - **Panel admin existente** (`requireAdmin`, server actions, `/admin/admins`,
@@ -506,7 +526,7 @@ retiro del pull.
 | Rate-limit in-memory débil entre lambdas | Tope de batch/payload + idempotencia + moderación; Redis diferido |
 | Socio publica spam/basura | Key revocable (U8) + entra como "fuente externa · sin verificar" + `hidden` |
 | Upsert pisa data más rica con más pobre | Conflicto por `(source, external_id)`: solo el dueño re-escribe lo suyo |
-| Borrar el pull deja hueco de dedup | Coordinar handoff con el equipo de dedup antes de apagar el cron (U9) |
+| Retirar el scrape deja hueco de dedup | El cron de dedup se **conserva** (no se borra); coordinar el corte con el equipo de dedup cuando ellos corran el suyo (U9) |
 | CSP de Next bloquea el visor por CDN | Auto-hospedar el asset (check en U7) |
 | Key filtrada | Solo hash en reposo; revocación inmediata (U8); prefix para identificar |
 
@@ -516,9 +536,10 @@ retiro del pull.
 
 1. Aplicar 0014; `check-migrations.mjs` la reporta.
 2. Desde `/admin/colaboradores`, crear un colaborador → key de prueba (mostrada una vez).
-3. `curl POST /api/ingest` con la key + 2 filas canónicas → 200 `upserted`;
+3. `curl POST /api/v1/ingest` con la key + 2 filas canónicas → 200 `upserted`;
    reenviar → idempotente.
-4. `curl GET /rest/v1/public_*` (endpoint existente) → los 2 registros, **sin** contacto.
+4. `curl GET /api/v1/reports?type=...` (vía recomendada) → los 2 registros, **sin**
+   contacto; el acceso directo `GET /rest/v1/public_*` (alternativa) da lo mismo.
 5. Revocar el colaborador desde `/admin/colaboradores` → el siguiente `POST` da 401.
 6. `/docs` carga y describe el endpoint.
-7. `ingest.yml` ya no corre; data nueva solo entra por `/api/ingest`.
+7. `ingest.yml` ya no corre; data nueva solo entra por `/api/v1/ingest`.
