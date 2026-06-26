@@ -215,6 +215,32 @@ function devMergeCandidates(): MergeCandidate[] {
       keep: make("a8", DEV_NAMES_M[3], { city: "San Felipe", source: "venezuela-ayuda.com", created_at: ago(14) }),
       dup: make("b8", "José Hernández", { city: "San Felipe", source: "terremotovenezuela2026.vercel.app", created_at: ago(11) }),
     },
+    // A chain of THREE pairs sharing records (r1–r2, r2–r3, r3–r4) → the same
+    // person reported FOUR times. The UI groups these into one block.
+    {
+      id: "mock-9", tier: "HARD", confidence: 0.94, reason: "Mismo nombre + misma zona",
+      evidence: { cosine: 0.9, phone_match: true },
+      keep: make("r1", "Rosa Díaz", { city: "Caracas", place_name: "Petare", photo_url: "https://placehold.co/400x500/1a1a2e/eee?text=Rosa", has_phone: true, source: "venezuela-ayuda.com", message: "Busco a mi mamá", created_at: ago(9) }),
+      dup: make("r2", "Rosa Diaz", { city: "Caracas", place_name: "Petare Sur", photo_url: "https://placehold.co/400x500/16213e/eee?text=Rosa+D", source: "desaparecidosterremotovenezuela.com", created_at: ago(7) }),
+    },
+    {
+      id: "mock-10", tier: "STRONG", confidence: 0.85, reason: "Nombre similar + misma ciudad",
+      evidence: { cosine: 0.8 },
+      keep: make("r2", "Rosa Diaz", { city: "Caracas", place_name: "Petare Sur", photo_url: "https://placehold.co/400x500/16213e/eee?text=Rosa+D", source: "desaparecidosterremotovenezuela.com", created_at: ago(7) }),
+      dup: make("r3", "Rosa M. Díaz", { city: "Caracas", place_name: "Petare", photo_url: "https://placehold.co/400x500/0f3460/eee?text=R.M.D", source: "venezuelatebusca.com", created_at: ago(5) }),
+    },
+    {
+      id: "mock-11", tier: "REVIEW", confidence: 0.68, reason: "Apellido coincide, foto parecida",
+      evidence: { cosine: 0.62 },
+      keep: make("r3", "Rosa M. Díaz", { city: "Caracas", place_name: "Petare", photo_url: "https://placehold.co/400x500/0f3460/eee?text=R.M.D", source: "venezuelatebusca.com", created_at: ago(5) }),
+      dup: make("r4", "R. Díaz", { city: "Caracas", place_name: "Petare Norte", source: "terremotove.netlify.app", message: "La vi en el refugio", created_at: ago(3) }),
+    },
+    {
+      id: "mock-12", tier: "STRONG", confidence: 0.83, reason: "Mismo nombre + misma zona",
+      evidence: { cosine: 0.77 },
+      keep: make("r4", "R. Díaz", { city: "Caracas", place_name: "Petare Norte", source: "terremotove.netlify.app", created_at: ago(3) }),
+      dup: make("r5", "Rosa Díaz G.", { city: "Caracas", place_name: "Petare", photo_url: "https://placehold.co/400x500/533483/eee?text=Rosa+G", has_phone: true, source: "venezuelatebusca.com", message: "Es mi vecina", created_at: ago(2) }),
+    },
   ];
 }
 

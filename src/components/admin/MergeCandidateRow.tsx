@@ -229,14 +229,17 @@ export default function MergeCandidateRow({ item, onDone }: { item: MergeCandida
       {/* Actions */}
       <div className="mt-4 flex flex-col gap-2 sm:flex-row">
         <button type="button" disabled={pending} onClick={() => decide("duplicate")}
+          title={`Son la misma persona: conserva a "${item.keep.name}" (A) y oculta a "${item.dup.name}" (B). Nada se borra, solo se oculta.`}
           className="w-full rounded-lg border border-red-200 bg-red-50 px-3 py-3 text-sm font-medium text-red-700 transition hover:bg-red-100 active:scale-[0.98] disabled:opacity-50 sm:w-auto sm:py-1.5 sm:text-xs">
           Marcar como duplicado
         </button>
         <button type="button" disabled={pending} onClick={() => decide("consolidate")}
+          title={`Son la misma persona: conserva a "${item.dup.name}" (B) y oculta a "${item.keep.name}" (A). Úsalo cuando el registro B es el bueno.`}
           className="w-full rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-3 text-sm font-medium text-emerald-700 transition hover:bg-emerald-100 active:scale-[0.98] disabled:opacity-50 sm:w-auto sm:py-1.5 sm:text-xs">
           Consolidar
         </button>
         <button type="button" disabled={pending} onClick={() => decide("skip")}
+          title="No decidir ahora. No se oculta nada; el par vuelve a aparecer para revisarlo después."
           className="w-full rounded-lg border border-[#e6ecf2] px-3 py-3 text-sm font-medium text-[#8190a0] transition hover:bg-slate-50 active:scale-[0.98] disabled:opacity-50 sm:w-auto sm:py-1.5 sm:text-xs">
           No estoy seguro
         </button>
