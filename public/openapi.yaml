@@ -1,0 +1,134 @@
+openapi: 3.1.0
+info:
+  title: Venezuela Ayuda — API del hub central
+  version: 1.0.0
+  description: |
+    API de coordinación de datos tras el terremoto de Venezuela.
+
+    `venezuela-ayuda.com` es el **hub central**: los sitios socios **publican**
+    reportes vía `POST /api/ingest` (cerrado por API key) y **leen** el conjunto
+    unificado por las vistas públicas de Supabase REST.
+
+    ## Autenticación
+    La escritura requiere el header `x-api-key`. Las keys las genera y entrega el
+    equipo de Venezuela Ayuda (una por colaborador). Escríbenos a hola@maw.dev.
+
+    ## Atribución
+    No mandes `source`: se estampa server-side desde tu key (no falsificable).
+    Manda `source_url` (link a tu registro) y un `external_id` estable por reporte.
+
+    ## Idempotencia
+    El upsert es por `(source, external_id)`: reenviar el mismo `external_id`
+    actualiza tu fila, no duplica.
+
+    ## Privacidad
+    `contact` / teléfonos se guardan en campos privados y **nunca** se devuelven
+    por la lectura pública.
+
+    ## Lectura (endpoint que ya existe — Supabase REST)
+    Abierta, sin datos privados. Base: `{SUPABASE_URL}/rest/v1`, header
+    `apikey: {PUBLISHABLE_KEY}`.
+
+      GET /rest/v1/public_checkins?select=*&order=created_at.desc
+      GET /rest/v1/public_help_requests?select=*
+      GET /rest/v1/public_help_offers?select=*
+      GET /rest/v1/public_damaged_reports?select=*
+
+    Filtros/paginación: los de PostgREST (`limit`, `Range`,
+    `created_at=gt.<cursor>`, `order`). Las vistas omiten `phone_private`/`contact`.
+
+servers:
+  - url: https://venezuela-ayuda.com
+
+paths:
+  /api/ingest:
+    post:
+      summary: Publicar reportes en el hub (push autenticado)
+      operationId: ingestReports
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reports]
+              properties:
+                reports:
+                  type: array
+                  maxItems: 200
+                  items:
+                    $ref: "#/components/schemas/Report"
+      responses:
+        "200":
+          description: Procesado (puede incluir rechazos por reporte).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IngestResponse"
+        "400": { description: Cuerpo JSON inválido o falta 'reports'. }
+        "401": { description: API key inválida o ausente. }
+        "403": { description: La key no tiene permiso de escritura. }
+        "413": { description: Más de 200 reportes en una solicitud. }
+        "429": { description: Rate limit (ver Retry-After). }
+
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: x-api-key
+  schemas:
+    Report:
+      type: object
+      required: [type, external_id]
+      description: |
+        Forma canónica (mismas columnas de las tablas). Los campos aplicables
+        dependen de `type`. `source` se ignora si se manda.
+      properties:
+        type:
+          type: string
+          enum: [missing_person, checkin, help_request, help_offer, damaged_building]
+        external_id:
+          type: string
+          description: Tu id estable. Requerido (idempotencia).
+        source_url: { type: string, description: Link de vuelta a tu registro. }
+        name: { type: string, description: "Personas (missing_person / checkin)." }
+        status:
+          type: string
+          description: "checkin → SAFE/NEEDS_HELP/LOOKING_FOR_SOMEONE; help_request → OPEN/IN_PROGRESS/RESOLVED."
+        category:
+          type: string
+          description: "help_request → medical|food|water|shelter|transportation|electricity|rescue|tools. help_offer → transportation|food|shelter|medical|supplies|translation."
+        urgency:
+          type: string
+          enum: [LOW, MEDIUM, HIGH, CRITICAL]
+          description: "help_request (default MEDIUM)."
+        severity:
+          type: string
+          enum: [CRACKS, PARTIAL, COLLAPSE_RISK, COLLAPSED]
+          description: "damaged_building (default PARTIAL)."
+        description: { type: string }
+        city: { type: string }
+        place_name: { type: string }
+        latitude: { type: number }
+        longitude: { type: number }
+        photo_url: { type: string }
+        availability: { type: string, description: "help_offer." }
+        contact:
+          type: string
+          description: PRIVADO — se guarda, nunca se devuelve por la lectura pública.
+    IngestResponse:
+      type: object
+      properties:
+        accepted: { type: integer }
+        rejected: { type: integer }
+        results:
+          type: array
+          items:
+            type: object
+            properties:
+              external_id: { type: [string, "null"] }
+              status: { type: string, enum: [upserted, rejected, error] }
+              error: { type: string }
