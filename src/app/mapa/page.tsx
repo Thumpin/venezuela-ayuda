@@ -51,7 +51,7 @@ export default async function Page() {
         </div>
 
         <div className="mx-auto mt-2 max-w-5xl">
-          <MapView markers={markers} />
+          <MapView markers={markers} locationFirst />
         </div>
 
         <div className="mx-auto max-w-5xl px-4 py-4">

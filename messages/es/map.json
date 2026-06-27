@@ -17,5 +17,19 @@
   "title": "🗺️ Mapa de ayuda",
   "wantToHelp": "🤝 Quiero ayudar",
   "askForHelp": "🆘 Pedir ayuda",
-  "hint": "Toca un punto para ver detalles. Usa los filtros para mostrar u ocultar categorías."
+  "hint": "Toca un punto para ver detalles. Usa los filtros para mostrar u ocultar categorías.",
+  "area": {
+    "stateLabel": "Estado o región",
+    "cityLabel": "Ciudad o sector",
+    "searchState": "Buscar estado o región…",
+    "searchCity": "Buscar ciudad o sector…",
+    "noState": "No encontramos ese estado.",
+    "noCity": "No encontramos esa ciudad.",
+    "nearMe": "📍 Cerca de mí",
+    "locating": "Ubicando…",
+    "allVenezuela": "Ver toda Venezuela",
+    "currentLocation": "Mi ubicación",
+    "personal": "Personal",
+    "locationError": "No pudimos acceder a tu ubicación."
+  }
 }
