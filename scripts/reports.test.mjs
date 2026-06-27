@@ -18,10 +18,10 @@ import {
   typeForResource,
 } from "../src/lib/reports.mjs";
 
-test("REPORT_TYPES son los 5 del catálogo (espejo de la escritura)", () => {
+test("REPORT_TYPES son los del catálogo (espejo de la escritura)", () => {
   assert.deepEqual(
     [...REPORT_TYPES].sort(),
-    ["checkin", "damaged_building", "help_offer", "help_request", "missing_person"]
+    ["checkin", "damaged_building", "help_offer", "help_request", "missing_person", "unaccompanied_child"]
   );
 });
 

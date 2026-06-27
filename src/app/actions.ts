@@ -22,7 +22,12 @@ import {
   type RiskAnswer,
 } from "@/lib/constants";
 import { computeRisk, type RiskAnswers } from "@/lib/risk";
-import { VA_SOURCE } from "@/lib/canonical.mjs";
+import {
+  VA_SOURCE,
+  CHILD_STATUS,
+  CHILD_GENDER,
+  CHILD_INFO_SOURCE,
+} from "@/lib/canonical.mjs";
 import { ingestArgs, patchArgs, buildCenterRow } from "@/lib/internalWrite.mjs";
 import { frIndexPerson } from "@/lib/fr";
 import type { Sighting, RequestResponse } from "@/lib/types";
@@ -53,7 +58,8 @@ function isBot(form: FormData): boolean {
 async function uploadCheckinPhoto(
   supabase: ReturnType<typeof getServerSupabase>,
   id: string,
-  dataUrl: FormDataEntryValue | null
+  dataUrl: FormDataEntryValue | null,
+  opts?: { prefix?: string }
 ): Promise<string | null> {
   if (typeof dataUrl !== "string" || !dataUrl) return null;
   const m = dataUrl.match(/^data:(image\/(jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/);
@@ -63,7 +69,12 @@ async function uploadCheckinPhoto(
   const buffer = Buffer.from(m[3], "base64");
   if (buffer.byteLength < 100 || buffer.byteLength > 3_000_000) return null;
   try {
-    const path = `${id}.${ext}`;
+    // El path lleva un uuid aleatorio (no enumerable). `prefix` separa namespaces
+    // (p.ej. children/) dentro del bucket. NOTA (privacidad): checkin-photos es un
+    // bucket PÚBLICO; para fotos de menores debería migrarse a un bucket privado
+    // con URLs firmadas (la foto nunca sale por la vista pública, pero la URL del
+    // bucket es accesible si se filtra). Ver issue #47.
+    const path = `${opts?.prefix ?? ""}${id}.${ext}`;
     const { error } = await supabase.storage
       .from("checkin-photos")
       .upload(path, buffer, { contentType, upsert: true });
@@ -589,6 +600,129 @@ export async function fetchRequestResponses(
     .eq("request_id", requestId)
     .order("created_at", { ascending: false });
   return { ok: true, responses: (data ?? []) as RequestResponse[] };
+}
+
+// --- Registro de niños no acompañados (issue #47) --------------------------
+// Mismo molde que submitCheckin: id+manage_token locales, escritura auditada por
+// la RPC ingest_reports. PRIVACIDAD: la vista pública expone solo el nombre; todo
+// lo demás (ubicación/foto/custodio/contacto) vive solo en la tabla privada.
+
+const oneOfChild = (v: string, arr: readonly string[]): string | null =>
+  arr.includes(v) ? v : null;
+const isoDate = (v: string | null): string | null =>
+  v && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : null;
+
+export async function submitFoundChild(
+  _prev: ActionState,
+  form: FormData
+): Promise<ActionState> {
+  if (!isSupabaseConfigured()) return notConfigured();
+  if (isBot(form)) return { ok: true };
+
+  const limited = rateLimit(await clientKey("child"), { limit: 6, windowSec: 60 });
+  if (!limited.ok)
+    return {
+      ok: false,
+      error: `Demasiados envíos. Espera ${limited.retryAfterSec}s e intenta de nuevo.`,
+    };
+
+  const name = cleanText(form.get("name"), LIMITS.name);
+  const reporter_name = cleanText(form.get("reporter_name"), LIMITS.name);
+  const fieldErrors: Record<string, string> = {};
+  if (name.length < 2) fieldErrors.name = "Escribe el nombre o apodo del niño.";
+  if (reporter_name.length < 2)
+    fieldErrors.reporter_name = "Escribe tu nombre completo.";
+  if (Object.keys(fieldErrors).length) return { ok: false, fieldErrors };
+
+  const status = oneOfChild(String(form.get("status") || ""), CHILD_STATUS) ?? "ALONE_NO_FAMILY";
+  const gender = oneOfChild(String(form.get("gender") || ""), CHILD_GENDER);
+  const directRaw = String(form.get("direct_contact") || "");
+  const direct_contact = directRaw === "true" ? true : directRaw === "false" ? false : null;
+  const info_source = oneOfChild(String(form.get("info_source") || ""), CHILD_INFO_SOURCE);
+  const coords = parseLatLng(form.get("latitude"), form.get("longitude"));
+  const found_at = isoDate(cleanOptional(form.get("found_at"), 10));
+  const last_seen_at = isoDate(cleanOptional(form.get("last_seen_at"), 10));
+  const hospital = cleanOptional(form.get("hospital"), LIMITS.hospital);
+  const last_seen_place = cleanOptional(form.get("last_seen_place"), LIMITS.last_seen_place);
+
+  const id = crypto.randomUUID();
+  const manageToken = crypto.randomUUID();
+  const nowIso = new Date().toISOString();
+  try {
+    const supabase = getServerSupabase();
+    const photoUrl = await uploadCheckinPhoto(supabase, id, form.get("photo_data"), {
+      prefix: "children/",
+    });
+    const { error } = await supabase.rpc(
+      "ingest_reports",
+      ingestArgs("unaccompanied_children", [
+        {
+          id,
+          source: VA_SOURCE,
+          name,
+          reporter_name,
+          age: cleanOptional(form.get("age"), LIMITS.age),
+          gender,
+          description: cleanOptional(form.get("description"), LIMITS.description),
+          found_place: cleanOptional(form.get("found_place"), LIMITS.found_place),
+          found_at,
+          last_seen_at,
+          hospital,
+          last_seen_place,
+          status,
+          direct_contact,
+          info_source,
+          info_source_detail: cleanOptional(form.get("info_source_detail"), LIMITS.info_source_detail),
+          notes: cleanOptional(form.get("notes"), LIMITS.notes),
+          photo_url: photoUrl,
+          latitude: coords?.lat ?? null,
+          longitude: coords?.lng ?? null,
+          manage_token: manageToken,
+          last_custody_at: nowIso, // el alta es el primer punto conocido de paradero
+        },
+      ])
+    );
+    if (error) {
+      // El RPC falló: la foto ya subió pero no hay fila que la referencie.
+      // Best-effort: borra el huérfano del bucket (deriva el path del public URL).
+      const path = photoUrl?.split("/checkin-photos/")[1];
+      if (path) {
+        try {
+          await supabase.storage.from("checkin-photos").remove([path]);
+        } catch {
+          /* limpieza best-effort; si falla queda un objeto huérfano inofensivo */
+        }
+      }
+      throw error;
+    }
+
+    // Siembra el primer evento de la cadena de custodia con lo que ya se sabe.
+    // Best-effort: si falla, el registro ya quedó guardado (no reintentar el alta
+    // entera evita un niño duplicado); last_custody_at ya viaja en la fila.
+    try {
+      await supabase.from("child_custody_events").insert({
+        child_id: id,
+        event_date: last_seen_at,
+        facility_name: hospital || last_seen_place || null,
+        status,
+        note: "Registro inicial",
+        source: VA_SOURCE,
+        recorded_by: reporter_name,
+      });
+    } catch {
+      /* el evento semilla es opcional; el alta ya está persistida */
+    }
+  } catch {
+    return {
+      ok: false,
+      error: "No pudimos guardar la información. Revisa tu conexión e intenta de nuevo.",
+    };
+  }
+
+  revalidatePath("/ninos");
+  // El manage_token se guarda pero la página de detalle ya no lo usa: la edición
+  // del historial vive en el panel de admin (super admin).
+  redirect(`/nino/${id}?nuevo=1`);
 }
 
 // Postular un centro de acopio (público) → entra sin verificar (oculto hasta que

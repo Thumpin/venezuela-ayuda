@@ -6,6 +6,9 @@ import type {
   RequestStatus,
   DamageSeverity,
   RiskLevel,
+  ChildStatus,
+  ChildGender,
+  ChildInfoSource,
 } from "./constants";
 
 // These mirror the privacy-safe public_* views — they intentionally omit
@@ -147,6 +150,58 @@ export interface PublicCollectionCenter {
   volunteers_count: number | null;
   needs_volunteers: boolean | null;
   needs: string[];
+  created_at: string;
+}
+
+// Registro de niños no acompañados (issue #47) ------------------------------
+// Mirrors public_unaccompanied_children: por protección infantil la superficie
+// pública expone SOLO el nombre (+ id opaco y created_at). Todo lo demás es privado.
+export interface PublicUnaccompaniedChild {
+  id: string;
+  name: string;
+  created_at: string;
+}
+
+// Ficha privada completa (tabla unaccompanied_children). Solo accesible por el
+// server con manage_token o por roles autorizados — nunca por la vista pública.
+export interface UnaccompaniedChild {
+  id: string;
+  name: string;
+  reporter_name: string | null;
+  age: string | null;
+  gender: ChildGender | null;
+  description: string | null;
+  found_place: string | null;
+  found_at: string | null;
+  last_seen_at: string | null;
+  hospital: string | null;
+  last_seen_place: string | null;
+  status: ChildStatus;
+  direct_contact: boolean | null;
+  info_source: ChildInfoSource | null;
+  info_source_detail: string | null;
+  notes: string | null;
+  photo_url: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  source: string | null;
+  source_url: string | null;
+  last_custody_at: string | null;
+  created_at: string;
+}
+
+// Un evento de la cadena de custodia (child_custody_events, append-only).
+export interface CustodyEvent {
+  seq: number;
+  occurred_at: string;
+  event_date: string | null;
+  placement: string | null;
+  facility_name: string | null;
+  custodian: string | null;
+  status: ChildStatus | null;
+  note: string | null;
+  source: string | null;
+  recorded_by: string | null;
   created_at: string;
 }
 

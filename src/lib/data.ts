@@ -11,6 +11,7 @@ import type {
   MissingPersonMatch,
   MapMarker,
   LatLng,
+  PublicUnaccompaniedChild,
 } from "@/lib/types";
 import {
   HELP_CATEGORIES,
@@ -343,6 +344,44 @@ export async function getCheckin(id: string): Promise<PublicCheckin | null> {
     .maybeSingle();
   if (error || !data) return null;
   return data as PublicCheckin;
+}
+
+// Registro de niños no acompañados (issue #47) ------------------------------
+// PRIVACIDAD: la lista y el detalle público leen SOLO de la vista solo-nombre.
+// La ficha completa y el historial de custodia exigen el manage_token (quien
+// reportó) y leen de la tabla privada — nunca llegan al cliente sin token.
+
+// Roster público: solo nombres (vista public_unaccompanied_children).
+export async function searchFoundChildren(params: {
+  q?: string;
+  limit?: number;
+}): Promise<PublicUnaccompaniedChild[]> {
+  if (!isSupabaseConfigured()) return [];
+  const supabase = getServerSupabase();
+  let query = supabase
+    .from("public_unaccompanied_children")
+    .select("*")
+    .order("created_at", { ascending: false })
+    .limit(params.limit ?? 100);
+  if (params.q) query = query.ilike("name", `%${escapeLike(params.q)}%`);
+  const { data, error } = await query;
+  if (error) return [];
+  return (data ?? []) as PublicUnaccompaniedChild[];
+}
+
+// Detalle público (anónimo): solo el nombre.
+export async function getFoundChildPublic(
+  id: string,
+): Promise<PublicUnaccompaniedChild | null> {
+  if (!isSupabaseConfigured() || !isUuid(id)) return null;
+  const supabase = getServerSupabase();
+  const { data, error } = await supabase
+    .from("public_unaccompanied_children")
+    .select("*")
+    .eq("id", id)
+    .maybeSingle();
+  if (error || !data) return null;
+  return data as PublicUnaccompaniedChild;
 }
 
 // Open help requests for volunteer matching: filter by mapped categories, then

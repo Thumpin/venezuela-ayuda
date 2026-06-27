@@ -24,6 +24,20 @@ export const SEVERITY = ["CRACKS", "PARTIAL", "COLLAPSE_RISK", "COLLAPSED"];
 export const CHECKIN_STATUS = ["SAFE", "NEEDS_HELP", "LOOKING_FOR_SOMEONE"];
 export const REQUEST_STATUS = ["OPEN", "IN_PROGRESS", "RESOLVED"];
 
+// Registro de niños no acompañados (issue #47). Valores tomados 1:1 de las
+// opciones del formulario "Infancia Protegida Vzla — Registro" y espejados en el
+// enum de la migración 0021 (child_status / child_gender / child_info_source).
+export const CHILD_STATUS = [
+  "ALONE_NO_FAMILY",
+  "ACCOMPANIED_SEEKING_FAMILY",
+  "IN_SHELTER",
+  "IN_HOSPITAL",
+  "REUNITED",
+  "WITH_NON_FAMILY",
+];
+export const CHILD_GENDER = ["BOY", "GIRL", "UNSPECIFIED"];
+export const CHILD_INFO_SOURCE = ["SOCIAL_MEDIA", "FRIEND_FAMILY", "INSTITUTION", "EXISTING_LIST", "OTHER"];
+
 // Límites de longitud de inputs. Unión de los campos que necesitan el TS (UI:
 // itemName/maxItems/maxQty) y la ingesta (source_url/photo_url). Mantener acá
 // para que clamp y validación nunca diverjan.
@@ -40,4 +54,11 @@ export const LIMITS = {
   itemName: 40,
   maxItems: 25,
   maxQty: 999,
+  // Registro de niños no acompañados (issue #47).
+  age: 40,
+  found_place: 200,
+  last_seen_place: 200,
+  hospital: 120,
+  info_source_detail: 200,
+  notes: 800,
 };

@@ -14,6 +14,9 @@ const TYPE_MAP = {
   help_request: { view: "public_help_requests" },
   help_offer: { view: "public_help_offers" },
   damaged_building: { view: "public_damaged_reports" },
+  // Niños no acompañados: proyección pública SOLO-NOMBRE (protección infantil).
+  // La vista no expone city/lat/lng/foto → el filtro city no aplica (ver route.ts).
+  unaccompanied_child: { view: "public_unaccompanied_children" },
 };
 
 export const REPORT_TYPES = Object.keys(TYPE_MAP);
@@ -28,6 +31,8 @@ export const VIEW_COLUMNS = {
   // propósito — es el email del admin verificador (interno), no debe salir al API
   // público ni al /history de terceros.
   public_damaged_reports: ["id", "place_name", "description", "severity", "city", "latitude", "longitude", "photo_url", "status", "created_at", "verified_at", "source", "source_url", "risk_level", "risk_priority"],
+  // Solo-nombre: ni ubicación, ni foto, ni custodio — superficie pública mínima.
+  public_unaccompanied_children: ["id", "name", "created_at"],
 };
 
 export const DEFAULT_LIMIT = 100;

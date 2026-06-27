@@ -10,6 +10,8 @@
     "reportBuildingSub": "Report structural damage",
     "safeLabel": "I'm safe",
     "safeSub": "Let your family know you're okay",
+    "childrenLabel": "Found children",
+    "childrenSub": "Register a child found alone so their trail isn't lost",
     "canHelpLabel": "I can help",
     "canHelpSub": "Offer your support to the community",
     "helpOutsideLabel": "I want to help from outside Venezuela",
