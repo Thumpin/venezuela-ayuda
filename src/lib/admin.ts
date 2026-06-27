@@ -59,7 +59,15 @@ export interface AdminRow {
 
 export async function listAdmins(): Promise<AdminRow[]> {
   if (!isSupabaseConfigured()) {
-    if (process.env.NODE_ENV === "development") return [{ email: "dev@test.local", added_by: "seed", created_at: new Date().toISOString() }];
+    if (process.env.NODE_ENV === "development")
+      return [
+        {
+          email: "dev@test.local",
+          added_by: "seed",
+          is_super_admin: false,
+          created_at: new Date().toISOString(),
+        },
+      ];
     return [];
   }
   const svc = getServerSupabase();
@@ -376,14 +384,14 @@ function devReviewedCandidates(): ReviewedCandidate[] {
 function devDamagedReports(): AdminDamagedRow[] {
   const ago = (d: number) => new Date(Date.now() - d * 86400000).toISOString();
   return [
-    { id: "dm-1", place_name: "Residencias Don Carlos – Av. Bolívar", severity: "PARTIAL", city: "Caracas", description: "Grietas en columnas del estacionamiento. Riesgo moderado.", status: "OPEN", hidden: false, verified_at: null, created_at: ago(2) },
-    { id: "dm-2", place_name: "Edificio Savoy – Plaza Miranda", severity: "COLLAPSE_RISK", city: "Caracas", description: "Estructura inclinada. Riesgo de colapso inminente. Desalojado.", status: "OPEN", hidden: false, verified_at: ago(1), created_at: ago(5) },
-    { id: "dm-3", place_name: "Urbanización Los Sauces – Av. Principal", severity: "CRACKS", city: "Maracay", description: "Grietas superficiales en fachada. Sin riesgo estructural.", status: "OPEN", hidden: false, verified_at: null, created_at: ago(3) },
-    { id: "dm-4", place_name: "Conjunto Residencial Las Ánimas", severity: "COLLAPSED", city: "Valencia", description: "Edificio colapsado totalmente. Escombros removidos. 3 heridos.", status: "RESOLVED", hidden: false, verified_at: ago(10), created_at: ago(15) },
-    { id: "dm-5", place_name: "Barrio Unión – Sector La Cruz", severity: "PARTIAL", city: "Barquisimeto", description: "Vivienda con daños en techo y paredes laterales.", status: "IN_PROGRESS", hidden: false, verified_at: ago(7), created_at: ago(8) },
-    { id: "dm-6", place_name: "Bloque 4 – 23 de Enero", severity: "COLLAPSE_RISK", city: "Caracas", description: "Losas superiores comprometidas. Evaluación urgente.", status: "OPEN", hidden: true, verified_at: null, created_at: ago(1) },
-    { id: "dm-7", place_name: "Edificio Torreón – Calle Sucre", severity: "CRACKS", city: "La Guaira", description: "Grietas finas en paredes interiores.", status: "OPEN", hidden: false, verified_at: null, created_at: ago(4) },
-    { id: "dm-8", place_name: "Residencias Río Chico – Calle 5", severity: "PARTIAL", city: "Los Teques", description: "Muro perimetral colapsado. Riesgo bajo.", status: "OPEN", hidden: false, verified_at: ago(2), created_at: ago(6) },
+    { id: "dm-1", place_name: "Residencias Don Carlos – Av. Bolívar", severity: "PARTIAL", city: "Caracas", description: "Grietas en columnas del estacionamiento. Riesgo moderado.", status: "OPEN", hidden: false, verified_at: null, risk_level: null, source: null, created_at: ago(2) },
+    { id: "dm-2", place_name: "Edificio Savoy – Plaza Miranda", severity: "COLLAPSE_RISK", city: "Caracas", description: "Estructura inclinada. Riesgo de colapso inminente. Desalojado.", status: "OPEN", hidden: false, verified_at: ago(1), risk_level: null, source: null, created_at: ago(5) },
+    { id: "dm-3", place_name: "Urbanización Los Sauces – Av. Principal", severity: "CRACKS", city: "Maracay", description: "Grietas superficiales en fachada. Sin riesgo estructural.", status: "OPEN", hidden: false, verified_at: null, risk_level: null, source: null, created_at: ago(3) },
+    { id: "dm-4", place_name: "Conjunto Residencial Las Ánimas", severity: "COLLAPSED", city: "Valencia", description: "Edificio colapsado totalmente. Escombros removidos. 3 heridos.", status: "RESOLVED", hidden: false, verified_at: ago(10), risk_level: null, source: null, created_at: ago(15) },
+    { id: "dm-5", place_name: "Barrio Unión – Sector La Cruz", severity: "PARTIAL", city: "Barquisimeto", description: "Vivienda con daños en techo y paredes laterales.", status: "IN_PROGRESS", hidden: false, verified_at: ago(7), risk_level: null, source: null, created_at: ago(8) },
+    { id: "dm-6", place_name: "Bloque 4 – 23 de Enero", severity: "COLLAPSE_RISK", city: "Caracas", description: "Losas superiores comprometidas. Evaluación urgente.", status: "OPEN", hidden: true, verified_at: null, risk_level: null, source: null, created_at: ago(1) },
+    { id: "dm-7", place_name: "Edificio Torreón – Calle Sucre", severity: "CRACKS", city: "La Guaira", description: "Grietas finas en paredes interiores.", status: "OPEN", hidden: false, verified_at: null, risk_level: null, source: null, created_at: ago(4) },
+    { id: "dm-8", place_name: "Residencias Río Chico – Calle 5", severity: "PARTIAL", city: "Los Teques", description: "Muro perimetral colapsado. Riesgo bajo.", status: "OPEN", hidden: false, verified_at: ago(2), risk_level: null, source: null, created_at: ago(6) },
   ];
 }
 
@@ -480,14 +488,14 @@ function devCollectionCenters(): AdminCenterRow[] {
 function devModerationItems(): ModerationItem[] {
   const ago = (d: number) => new Date(Date.now() - d * 86400000).toISOString();
   return [
-    { table: "checkins", id: "mod-1", label: "María Pérez", sub: "LOOKING_FOR_SOMEONE · Caracas", hidden: false, created_at: ago(1) },
-    { table: "checkins", id: "mod-2", label: "Juan Rodríguez", sub: "LOOKING_FOR_SOMEONE · La Guaira", hidden: false, created_at: ago(2) },
-    { table: "help_requests", id: "mod-3", label: "Residencias Parque del Este", sub: "shelter · Maracay", hidden: false, created_at: ago(3) },
-    { table: "help_offers", id: "mod-4", label: "transportation", sub: "Valencia", hidden: false, created_at: ago(4) },
-    { table: "checkins", id: "mod-5", label: "Carlos Mendoza", sub: "LOOKING_FOR_SOMEONE · Barquisimeto", hidden: true, created_at: ago(5) },
-    { table: "help_requests", id: "mod-6", label: "Edificio Savoy", sub: "medical · Caracas", hidden: false, created_at: ago(6) },
-    { table: "help_offers", id: "mod-7", label: "food", sub: "Maracaibo", hidden: false, created_at: ago(7) },
-    { table: "checkins", id: "mod-8", label: "Ana López", sub: "LOOKING_FOR_SOMEONE · Valencia", hidden: false, created_at: ago(8) },
+    { table: "checkins", id: "mod-1", label: "María Pérez", sub: "LOOKING_FOR_SOMEONE · Caracas", hidden: false, created_at: ago(1), kind: "Persona", detail: null, status: null, source: null },
+    { table: "checkins", id: "mod-2", label: "Juan Rodríguez", sub: "LOOKING_FOR_SOMEONE · La Guaira", hidden: false, created_at: ago(2), kind: "Persona", detail: null, status: null, source: null },
+    { table: "help_requests", id: "mod-3", label: "Residencias Parque del Este", sub: "shelter · Maracay", hidden: false, created_at: ago(3), kind: "Solicitud de ayuda", detail: null, status: null, source: null },
+    { table: "help_offers", id: "mod-4", label: "transportation", sub: "Valencia", hidden: false, created_at: ago(4), kind: "Oferta de ayuda", detail: null, status: null, source: null },
+    { table: "checkins", id: "mod-5", label: "Carlos Mendoza", sub: "LOOKING_FOR_SOMEONE · Barquisimeto", hidden: true, created_at: ago(5), kind: "Persona", detail: null, status: null, source: null },
+    { table: "help_requests", id: "mod-6", label: "Edificio Savoy", sub: "medical · Caracas", hidden: false, created_at: ago(6), kind: "Solicitud de ayuda", detail: null, status: null, source: null },
+    { table: "help_offers", id: "mod-7", label: "food", sub: "Maracaibo", hidden: false, created_at: ago(7), kind: "Oferta de ayuda", detail: null, status: null, source: null },
+    { table: "checkins", id: "mod-8", label: "Ana López", sub: "LOOKING_FOR_SOMEONE · Valencia", hidden: false, created_at: ago(8), kind: "Persona", detail: null, status: null, source: null },
   ];
 }
 
@@ -675,48 +683,7 @@ export async function markNotificationRead(notificationId: string): Promise<void
   await svc.from("admin_notifications").update({ read: true }).eq("id", notificationId);
 }
 
-// --- Moderation ---
 
-export async function listModerationItems(): Promise<ModerationItem[]> {
-  if (!isSupabaseConfigured()) {
-    if (process.env.NODE_ENV === "development") return devModerationItems();
-    return [];
-  }
-  const svc = getServerSupabase();
-  const [checkins, requests, offers] = await Promise.all([
-    svc.from("checkins").select("id,name,status,city,hidden,created_at,photo_url").order("created_at", { ascending: false }).limit(40),
-    svc.from("help_requests").select("id,category,place_name,city,hidden,created_at").order("created_at", { ascending: false }).limit(40),
-    svc.from("help_offers").select("id,category,city,hidden,created_at").order("created_at", { ascending: false }).limit(40),
-  ]);
-  const items: ModerationItem[] = [];
-  for (const c of checkins.data ?? [])
-    items.push({ table: "checkins", id: c.id, label: c.name, sub: `${c.status} · ${c.city ?? ""}`, hidden: c.hidden, created_at: c.created_at, photo_url: c.photo_url ?? null });
-  for (const r of requests.data ?? [])
-    items.push({ table: "help_requests", id: r.id, label: r.place_name || r.category, sub: `${r.category} · ${r.city ?? ""}`, hidden: r.hidden, created_at: r.created_at });
-  for (const o of offers.data ?? [])
-    items.push({ table: "help_offers", id: o.id, label: o.category, sub: o.city ?? null, hidden: o.hidden, created_at: o.created_at });
-  return items.sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
-}
-
-export interface PartnerRow {
-  id: string;
-  name: string;
-  source: string;
-  key_prefix: string;
-  active: boolean;
-  contact: string | null;
-  created_at: string;
-  revoked_at: string | null;
-}
-
-export async function listPartners(): Promise<PartnerRow[]> {
-  const svc = getServerSupabase();
-  const { data } = await svc
-    .from("api_partners")
-    .select("*")
-    .order("created_at", { ascending: true });
-  return (data ?? []) as PartnerRow[];
-}
 
 export interface HospitalizedRow {
   id: string;
