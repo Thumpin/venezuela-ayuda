@@ -2,13 +2,13 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import Header from "@/components/Header";
 import PartnerManager from "@/components/admin/PartnerManager";
-import { getAdminEmail, listPartners } from "@/lib/admin";
+import { getAdminSession, listPartners } from "@/lib/admin";
 
 export const dynamic = "force-dynamic";
 
 export default async function ColaboradoresPage() {
-  const email = await getAdminEmail();
-  if (!email) redirect("/admin");
+  const session = await getAdminSession();
+  if (!session?.isSuper) redirect("/admin"); // super-admin only
 
   const partners = await listPartners();
 

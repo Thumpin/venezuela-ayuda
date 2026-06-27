@@ -41,6 +41,11 @@
     "filter": "Filter",
     "noResults": "No active requests match.",
     "askForHelp": "Ask for help",
-    "distanceAway": "{distance} away"
+    "distanceAway": "{distance} away",
+    "statusOpen": "Open",
+    "statusInProgress": "In progress",
+    "useMyLocation": "Use my location",
+    "locating": "Locating…",
+    "offeredCount": "{count} already offered to help"
   }
 }

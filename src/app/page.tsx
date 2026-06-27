@@ -50,6 +50,13 @@ export default async function Home() {
             tileBg="#eef3fa"
           />
           <BigButton
+            href="/necesidades"
+            emoji="📋"
+            label={t("actions.activeNeedsLabel")}
+            sublabel={t("actions.activeNeedsSub")}
+            tileBg="#eef3fa"
+          />
+          <BigButton
             href="/buscar?tipo=desaparecidos"
             emoji="👤"
             label="Lista de Desaparecidos"

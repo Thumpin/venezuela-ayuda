@@ -4,6 +4,7 @@ import { getTranslations } from "next-intl/server";
 import Header from "@/components/Header";
 import GuideInvitePopup from "@/components/GuideInvitePopup";
 import SourceBadge from "@/components/SourceBadge";
+import UseMyLocationButton from "@/components/UseMyLocationButton";
 import { getMatchingRequests } from "@/lib/data";
 import { formatItems } from "@/lib/validation";
 import {
@@ -33,12 +34,15 @@ export default async function Page({
     lng?: string;
     ciudad?: string;
     categoria?: string;
+    estado?: string;
   }>;
 }) {
   const sp = await searchParams;
   const cat = sp.cat;
   const categoria = sp.categoria;
   const ciudad = sp.ciudad?.trim() || undefined;
+  const estado =
+    sp.estado === "OPEN" || sp.estado === "IN_PROGRESS" ? sp.estado : undefined;
 
   // Resolve which help-request categories to show.
   let categories: HelpCategory[] | undefined;
@@ -60,8 +64,22 @@ export default async function Page({
     lat,
     lng,
     city: ciudad,
+    status: estado,
     limit: 60,
   });
+
+  // Preserve the active filters when switching the status chip.
+  const statusHref = (value?: "OPEN" | "IN_PROGRESS") => {
+    const p = new URLSearchParams();
+    if (categoria) p.set("categoria", categoria);
+    if (cat) p.set("cat", cat);
+    if (ciudad) p.set("ciudad", ciudad);
+    if (sp.lat != null) p.set("lat", sp.lat);
+    if (sp.lng != null) p.set("lng", sp.lng);
+    if (value) p.set("estado", value);
+    const qs = p.toString();
+    return qs ? `/solicitudes?${qs}` : "/solicitudes";
+  };
 
   const tr = await getTranslations("detail");
   const tD = await getTranslations("domain");
@@ -157,6 +175,34 @@ export default async function Page({
           </button>
         </form>
 
+        {/* Status filter + use-my-location (sorts nearest within each urgency tier) */}
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          {[
+            { v: undefined, label: tr("requests.all") },
+            { v: "OPEN" as const, label: tr("requests.statusOpen") },
+            { v: "IN_PROGRESS" as const, label: tr("requests.statusInProgress") },
+          ].map((s) => {
+            const active = estado === s.v || (!estado && !s.v);
+            return (
+              <Link
+                key={s.label}
+                href={statusHref(s.v)}
+                className={`rounded-full px-3 py-1.5 text-sm font-medium ${
+                  active ? "bg-[#14212e] text-white" : "bg-slate-100 text-[#5b6b7b]"
+                }`}
+              >
+                {s.label}
+              </Link>
+            );
+          })}
+          <span className="ml-auto">
+            <UseMyLocationButton
+              label={tr("requests.useMyLocation")}
+              locating={tr("requests.locating")}
+            />
+          </span>
+        </div>
+
         {/* Results */}
         <div className="mt-6">
           {requests.length === 0 ? (
@@ -213,6 +259,11 @@ export default async function Page({
                       )}
                       {r.city && <span>📍 {r.city}</span>}
                       {distance && <span>{tr("requests.distanceAway", { distance })}</span>}
+                      {r.responseCount ? (
+                        <span className="rounded-full bg-emerald-50 px-2.5 py-1 font-medium text-emerald-700">
+                          🤝 {tr("requests.offeredCount", { count: r.responseCount })}
+                        </span>
+                      ) : null}
                     </div>
 
                     {r.description && (

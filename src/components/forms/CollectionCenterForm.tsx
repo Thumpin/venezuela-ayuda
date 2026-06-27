@@ -4,20 +4,12 @@ import Link from "next/link";
 import { useActionState } from "react";
 import { useTranslations } from "next-intl";
 import { submitCollectionCenter, type ActionState } from "@/app/actions";
-import { LIMITS } from "@/lib/constants";
+import { LIMITS, COUNTRIES } from "@/lib/constants";
 import { Label, TextInput, TextArea, FieldError, Honeypot } from "@/components/Field";
 import LocationPicker from "@/components/LocationPicker";
 import SubmitButton from "@/components/SubmitButton";
 
 const initial: ActionState = { ok: false };
-
-// Common countries (the field is free-text with these as suggestions; "Venezuela"
-// is what routes a center onto the map).
-const COUNTRIES = [
-  "Venezuela", "Colombia", "Ecuador", "Perú", "Chile", "Argentina", "Brasil",
-  "Panamá", "México", "Estados Unidos", "España", "República Dominicana",
-  "Costa Rica", "Uruguay",
-];
 
 export default function CollectionCenterForm() {
   const [state, action] = useActionState(submitCollectionCenter, initial);

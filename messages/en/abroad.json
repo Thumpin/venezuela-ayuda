@@ -11,5 +11,10 @@
   "placeCount": "{count, plural, one {# place} other {# places}}",
   "website": "🌐 Website ↗",
   "postularPrompt": "Do you run a collection center that isn't listed here?",
-  "postularCta": "Submit a collection center"
+  "postularCta": "Submit a collection center",
+  "receives": "They receive",
+  "shipsToVe": "Ships to Venezuela",
+  "needsVolunteers": "Looking for volunteers",
+  "volunteers": "{count} volunteers",
+  "directions": "Get directions"
 }

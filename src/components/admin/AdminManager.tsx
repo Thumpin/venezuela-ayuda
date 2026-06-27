@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { addAdmin, removeAdmin } from "@/app/admin/actions";
+import { addAdmin, removeAdmin, setSuperAdmin } from "@/app/admin/actions";
 import { fullDate } from "@/lib/format";
 import type { AdminRow } from "@/lib/admin";
 
@@ -83,12 +83,15 @@ export default function AdminManager({
               className="flex flex-wrap items-center gap-3 rounded-2xl border border-[#e6ecf2] bg-white p-4"
             >
               <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-semibold text-[#14212e]">
+                <p className="flex items-center gap-2 truncate text-sm font-semibold text-[#14212e]">
                   {admin.email}
-                  {isMe && (
-                    <span className="ml-2 text-xs font-normal text-[#8190a0]">
-                      (tú)
+                  {admin.is_super_admin && (
+                    <span className="rounded-full bg-violet-100 px-2 py-0.5 text-[11px] font-bold text-violet-700">
+                      super
                     </span>
+                  )}
+                  {isMe && (
+                    <span className="text-xs font-normal text-[#8190a0]">(tú)</span>
                   )}
                 </p>
                 <p className="mt-0.5 text-xs text-[#8190a0]">
@@ -96,6 +99,14 @@ export default function AdminManager({
                   {admin.added_by ? ` · por ${admin.added_by}` : ""}
                 </p>
               </div>
+              <button
+                type="button"
+                disabled={pending || (isMe && admin.is_super_admin)}
+                onClick={() => run(() => setSuperAdmin(admin.email, !admin.is_super_admin))}
+                className="shrink-0 rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 text-sm font-medium text-violet-700 transition hover:bg-violet-100 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {admin.is_super_admin ? "Quitar super" : "Hacer super"}
+              </button>
               <button
                 type="button"
                 disabled={pending || isMe}

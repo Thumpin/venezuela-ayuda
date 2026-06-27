@@ -208,3 +208,17 @@ textarea {
     @apply font-sans;
   }
 }
+
+/* "Beating" logo for the general loading state — a heartbeat scale pulse. Honors
+   prefers-reduced-motion via the global override above. */
+@keyframes heartbeat {
+  0%, 100% { transform: scale(1); }
+  15% { transform: scale(1.13); }
+  30% { transform: scale(0.97); }
+  45% { transform: scale(1.07); }
+  60% { transform: scale(1); }
+}
+.animate-heartbeat {
+  animation: heartbeat 1.4s ease-in-out infinite;
+  will-change: transform;
+}

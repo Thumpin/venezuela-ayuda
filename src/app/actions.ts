@@ -24,6 +24,7 @@ import {
 import { computeRisk, type RiskAnswers } from "@/lib/risk";
 import { VA_SOURCE } from "@/lib/canonical.mjs";
 import { ingestArgs, patchArgs, buildCenterRow } from "@/lib/internalWrite.mjs";
+import { frIndexPerson } from "@/lib/fr";
 import type { Sighting, RequestResponse } from "@/lib/types";
 
 export type ActionState = {
@@ -131,6 +132,21 @@ export async function submitCheckin(
       ])
     );
     if (error) throw error;
+
+    // Indexa la foto en el FR-API (asistivo, best-effort) para permitir dedup y
+    // conciliación por rostro entre plataformas. Nunca bloquea ni lanza, y no
+    // envía datos privados (el teléfono queda fuera).
+    if (photoUrl) {
+      await frIndexPerson({
+        externalId: id,
+        imageUrl: photoUrl,
+        name,
+        location:
+          cleanOptional(form.get("city"), LIMITS.city) ||
+          cleanOptional(form.get("place_name"), LIMITS.place_name) ||
+          null,
+      });
+    }
   } catch {
     return {
       ok: false,

@@ -38,6 +38,7 @@ export default function HelpAbroadList({ cities }: { cities: HelpCity[] }) {
             p.name,
             p.address,
             p.description ?? "",
+            p.resources ?? "",
           ]
             .join(" ")
             .toLowerCase();
@@ -120,9 +121,20 @@ function PlaceCard({ place }: { place: HelpPlace }) {
         </p>
       )}
 
-      <p className="mt-2 text-sm text-[#33414f]">📍 {place.address}</p>
+      {place.address && (
+        <p className="mt-2 text-sm text-[#33414f]">📍 {place.address}</p>
+      )}
 
-      {(place.phone || place.website) && (
+      {place.resources && (
+        <div className="mt-2 rounded-lg border border-[#e6ecf2] bg-[#f7fafd] px-3 py-2">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-[#8190a0]">
+            📦 {t("receives")}
+          </p>
+          <p className="mt-0.5 text-sm text-[#33414f]">{place.resources}</p>
+        </div>
+      )}
+
+      {(place.phone || place.website || place.mapsQuery) && (
         <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
           {place.phone && (
             <a
@@ -142,26 +154,49 @@ function PlaceCard({ place }: { place: HelpPlace }) {
               {t("website")}
             </a>
           )}
+          {place.mapsQuery && (
+            <a
+              href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(place.mapsQuery)}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-semibold text-[#2563a8]"
+            >
+              🧭 {t("directions")}
+            </a>
+          )}
         </div>
       )}
 
-      {place.needs.length > 0 && (
-        <div className="mt-3 flex flex-wrap gap-2">
-          {place.needs.map((need) => {
-            const n = HELP_NEEDS[need];
-            return (
-              <span
-                key={need}
-                className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-3 py-1 text-xs font-semibold"
-                style={{ backgroundColor: n.tintBg, color: n.tintText }}
-              >
-                <span aria-hidden>{n.emoji}</span>
-                {t(`need.${need}`)}
-              </span>
-            );
-          })}
-        </div>
-      )}
+      <div className="mt-3 flex flex-wrap gap-2">
+        {place.needs.map((need) => {
+          const n = HELP_NEEDS[need];
+          return (
+            <span
+              key={need}
+              className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-3 py-1 text-xs font-semibold"
+              style={{ backgroundColor: n.tintBg, color: n.tintText }}
+            >
+              <span aria-hidden>{n.emoji}</span>
+              {t(`need.${need}`)}
+            </span>
+          );
+        })}
+        {place.canShip && (
+          <span className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full bg-[#eef9f2] px-3 py-1 text-xs font-semibold text-[#1f7a52]">
+            ✈️ {t("shipsToVe")}
+          </span>
+        )}
+        {place.needsVolunteers && (
+          <span className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full bg-[#e9f1fb] px-3 py-1 text-xs font-semibold text-[#2563a8]">
+            🙋 {t("needsVolunteers")}
+          </span>
+        )}
+        {place.volunteersCount != null && place.volunteersCount > 0 && (
+          <span className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-[#5b6b7b]">
+            👥 {t("volunteers", { count: place.volunteersCount })}
+          </span>
+        )}
+      </div>
     </div>
   );
 }

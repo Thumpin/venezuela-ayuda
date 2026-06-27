@@ -206,3 +206,14 @@ export const DEFAULT_ZOOM = 6;
 // Single-sourced in ./canonical.mjs so the TS UI and the non-TS ingest pipeline
 // clamp identically. Re-exported (not redefined) to avoid drift.
 export const LIMITS = CANONICAL.LIMITS;
+
+// Canonical (Spanish) country names for the collection-center forms — surfaced as
+// a <datalist> so admins/users pick a consistent value instead of typing variants
+// ("Brasil" vs "Brazil"). Free text is still allowed for anything not listed.
+export const COUNTRIES = [
+  "Venezuela", "Colombia", "Estados Unidos", "España", "México", "Panamá",
+  "Ecuador", "Brasil", "Argentina", "Chile", "Perú", "Uruguay", "Paraguay",
+  "Bolivia", "Costa Rica", "República Dominicana", "Puerto Rico", "Guatemala",
+  "Honduras", "El Salvador", "Nicaragua", "Canadá", "Italia", "Portugal",
+  "Reino Unido", "Francia", "Alemania", "Países Bajos",
+] as const;

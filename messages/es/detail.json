@@ -41,6 +41,11 @@
     "filter": "Filtrar",
     "noResults": "No hay solicitudes activas que coincidan.",
     "askForHelp": "Pedir ayuda",
-    "distanceAway": "a {distance}"
+    "distanceAway": "a {distance}",
+    "statusOpen": "Abiertas",
+    "statusInProgress": "En progreso",
+    "useMyLocation": "Usar mi ubicación",
+    "locating": "Ubicando…",
+    "offeredCount": "{count} ya ofrecieron ayuda"
   }
 }

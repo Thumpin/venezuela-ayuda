@@ -15,7 +15,9 @@
     "helpOutsideLabel": "Quiero ayudar fuera de Venezuela",
     "helpOutsideSub": "Voluntariado y centros de acopio en tu ciudad",
     "viewMapLabel": "Ver mapa de ayuda",
-    "viewMapSub": "Todo en un mapa interactivo"
+    "viewMapSub": "Todo en un mapa interactivo",
+    "activeNeedsLabel": "Quién necesita ayuda",
+    "activeNeedsSub": "Personas y lugares con necesidades activas"
   },
   "stats": {
     "safe": "A salvo",

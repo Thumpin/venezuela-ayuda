@@ -8,6 +8,7 @@ import {
   updateCenter,
 } from "@/app/admin/actions";
 import { timeAgo } from "@/lib/format";
+import { COUNTRIES } from "@/lib/constants";
 import type { AdminCenterRow } from "@/lib/admin";
 
 type Result = { ok: boolean; error?: string };
@@ -107,7 +108,17 @@ export default function CenterAdminRow({ item }: { item: AdminCenterRow }) {
               <input className={inputCls} value={form.name} onChange={(e) => set("name", e.target.value)} />
             </Field>
             <Field label="País (exacto: 'Venezuela' → mapa)">
-              <input className={inputCls} value={form.country} onChange={(e) => set("country", e.target.value)} />
+              <input
+                className={inputCls}
+                value={form.country}
+                onChange={(e) => set("country", e.target.value)}
+                list="admin-paises"
+              />
+              <datalist id="admin-paises">
+                {COUNTRIES.map((c) => (
+                  <option key={c} value={c} />
+                ))}
+              </datalist>
             </Field>
             <Field label="Estado">
               <input className={inputCls} value={form.state} onChange={(e) => set("state", e.target.value)} />

@@ -22,7 +22,12 @@ export type HelpPlace = {
   description?: string; // optional short "how to help"
   address: string;
   website?: string; // optional, rendered as ↗ link
-  phone?: string; // optional display number; the tel: link strips punctuation
+  phone?: string; // optional ORG number (public), not a personal contact
+  resources?: string; // what they receive ("Reciben: ...")
+  canShip?: boolean; // ships donations to Venezuela
+  needsVolunteers?: boolean; // actively looking for volunteers
+  volunteersCount?: number; // how many volunteers they have
+  mapsQuery?: string; // address/coords for a "cómo llegar" link
   needs: HelpNeed[]; // drives badges + global tab filter
 };
 

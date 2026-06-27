@@ -15,7 +15,9 @@
     "helpOutsideLabel": "I want to help from outside Venezuela",
     "helpOutsideSub": "Volunteering and collection centers in your city",
     "viewMapLabel": "View the help map",
-    "viewMapSub": "Everything on an interactive map"
+    "viewMapSub": "Everything on an interactive map",
+    "activeNeedsLabel": "Who needs help",
+    "activeNeedsSub": "People and places with active needs"
   },
   "stats": {
     "safe": "Safe",

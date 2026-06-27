@@ -171,6 +171,13 @@ export default function ModerationRow({
     );
   }
 
+  const kindColor =
+    item.table === "checkins"
+      ? "bg-rose-100 text-rose-700"
+      : item.table === "help_requests"
+        ? "bg-amber-100 text-amber-700"
+        : "bg-emerald-100 text-emerald-700";
+
   return (
     <>
     <div className="rounded-2xl border border-[#e6ecf2] bg-white p-4 flex flex-col gap-2 shadow-sm">
@@ -192,6 +199,9 @@ export default function ModerationRow({
         )}
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
+            <span className={`rounded-full px-2.5 py-0.5 text-xs font-bold ${kindColor}`}>
+              {item.kind}
+            </span>
             <h3 className="min-w-0 truncate text-base font-semibold text-[#14212e]">
               {item.label}
             </h3>
@@ -200,16 +210,24 @@ export default function ModerationRow({
                 <span className="text-xs">✚</span> {hospitalName}
               </span>
             )}
-            {item.hidden && (
-              <span className="rounded-full bg-slate-200 px-2.5 py-0.5 text-xs font-semibold text-slate-600">
-                Oculto
+            {item.hidden ? (
+              <span className="rounded-full bg-slate-700 px-2.5 py-0.5 text-xs font-semibold text-white">
+                Oculto (no visible al público)
+              </span>
+            ) : (
+              <span className="rounded-full bg-green-50 px-2.5 py-0.5 text-xs font-semibold text-green-700">
+                Visible al público
               </span>
             )}
           </div>
-          <p className="mt-0.5 text-xs text-[#8190a0]">
+          <p className="mt-1 text-xs text-[#8190a0]">
             {item.sub ? `${item.sub} · ` : ""}
             {timeAgo(item.created_at)}
+            {` · ${item.source ? `Fuente: ${item.source}` : "Desde el sitio"}`}
           </p>
+          {item.detail && (
+            <p className="mt-2 line-clamp-2 text-sm text-[#5b6b7b]">{item.detail}</p>
+          )}
         </div>
 
         <div className="flex shrink-0 flex-wrap gap-2">

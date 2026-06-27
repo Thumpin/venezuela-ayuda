@@ -11,5 +11,10 @@
   "placeCount": "{count, plural, one {# lugar} other {# lugares}}",
   "website": "🌐 Sitio web ↗",
   "postularPrompt": "¿Organizas un centro de acopio que no aparece aquí?",
-  "postularCta": "Postula un centro de acopio"
+  "postularCta": "Postula un centro de acopio",
+  "receives": "Reciben",
+  "shipsToVe": "Envía a Venezuela",
+  "needsVolunteers": "Buscan voluntarios",
+  "volunteers": "{count} voluntarios",
+  "directions": "Cómo llegar"
 }

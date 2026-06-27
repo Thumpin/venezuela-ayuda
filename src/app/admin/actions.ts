@@ -4,8 +4,12 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { getAuthClient } from "@/lib/supabase/auth";
 import { getServerSupabase, isSupabaseConfigured } from "@/lib/supabase/server";
-import { createNotification, getAdminEmail, isEmailAdmin, markNotificationRead, releaseMyAssignments, reopenMergeCandidate } from "@/lib/admin";
+import { getAdminEmail, isEmailAdmin, isSuperAdmin, createNotification, markNotificationRead, releaseMyAssignments, reopenMergeCandidate } from "@/lib/admin";
 import { generateApiKey, hashKey, parsePrefix } from "@/lib/apiAuth.mjs";
+import { patchArgs, deleteArgs } from "@/lib/internalWrite.mjs";
+import { buildRow, INGEST_TABLES } from "@/lib/ingest.mjs";
+import { parseDump } from "@/lib/batchIngest.mjs";
+import { VA_PARTNER_ID } from "@/lib/canonical.mjs";
 
 export type AuthState = { error?: string };
 type Result = { ok: boolean; error?: string };
@@ -81,6 +85,14 @@ async function requireAdmin(): Promise<string> {
   return email;
 }
 
+// Stricter gate for privileged actions: managing admins, issuing API keys, and
+// batch ingest. Throws unless the caller is a super-admin.
+async function requireSuperAdmin(): Promise<string> {
+  const email = await getAdminEmail();
+  if (!email || !(await isSuperAdmin(email))) throw new Error("No autorizado");
+  return email;
+}
+
 export async function verifyDamagedReport(id: string, verified: boolean): Promise<Result> {
   let email: string;
   try { email = await requireAdmin(); } catch { return { ok: false, error: "No autorizado." }; }
@@ -92,6 +104,46 @@ export async function verifyDamagedReport(id: string, verified: boolean): Promis
     .eq("id", id);
   if (error) return { ok: false, error: "No se pudo actualizar." };
   revalidatePath("/mapa"); revalidatePath(`/edificio/${id}`); revalidatePath("/admin");
+  return { ok: true };
+}
+
+// Correct partially-wrong info on a community damaged-building report (text,
+// city, severity) before/after verifying it. Patches via the audited RPC.
+const DAMAGE_SEVERITIES = new Set(["CRACKS", "PARTIAL", "COLLAPSE_RISK", "COLLAPSED"]);
+
+export async function updateDamagedReport(
+  id: string,
+  fields: Record<string, unknown>,
+): Promise<Result> {
+  try {
+    await requireAdmin();
+  } catch {
+    return { ok: false, error: "No autorizado." };
+  }
+  if (!UUID_RE.test(id)) return { ok: false, error: "Id inválido." };
+
+  const update: Record<string, unknown> = {};
+  const TEXT: Record<string, number> = { place_name: 120, description: 800, city: 80 };
+  for (const [k, max] of Object.entries(TEXT)) {
+    if (!(k in fields)) continue;
+    const v = String(fields[k] ?? "").replace(/\s+/g, " ").trim().slice(0, max);
+    if (k === "place_name" && !v)
+      return { ok: false, error: "El nombre del lugar no puede quedar vacío." };
+    update[k] = v || null;
+  }
+  if ("severity" in fields) {
+    const s = String(fields.severity ?? "");
+    if (!DAMAGE_SEVERITIES.has(s)) return { ok: false, error: "Severidad inválida." };
+    update.severity = s;
+  }
+  if (Object.keys(update).length === 0) return { ok: true };
+
+  const svc = getServerSupabase();
+  const { error } = await svc.rpc("patch_report", patchArgs("damaged_reports", id, update));
+  if (error) return { ok: false, error: "No se pudo guardar." };
+  revalidatePath("/mapa");
+  revalidatePath(`/edificio/${id}`);
+  revalidatePath("/admin");
   return { ok: true };
 }
 
@@ -212,7 +264,11 @@ export async function dismissNotification(notificationId: string): Promise<Resul
 // --- Manage admins -----------------------------------------------------------
 export async function addAdmin(email: string): Promise<Result> {
   let me: string;
-  try { me = await requireAdmin(); } catch { return { ok: false, error: "No autorizado." }; }
+  try {
+    me = await requireSuperAdmin();
+  } catch {
+    return { ok: false, error: "No autorizado." };
+  }
   const clean = email.trim().toLowerCase();
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(clean)) return { ok: false, error: "Correo inválido." };
   const svc = getServerSupabase();
@@ -224,7 +280,11 @@ export async function addAdmin(email: string): Promise<Result> {
 
 export async function removeAdmin(email: string): Promise<Result> {
   let me: string;
-  try { me = await requireAdmin(); } catch { return { ok: false, error: "No autorizado." }; }
+  try {
+    me = await requireSuperAdmin();
+  } catch {
+    return { ok: false, error: "No autorizado." };
+  }
   const clean = email.trim().toLowerCase();
   if (clean === me) return { ok: false, error: "No puedes quitarte a ti mismo." };
   const svc = getServerSupabase();
@@ -291,7 +351,30 @@ export async function updateCenter(id: string, fields: Record<string, unknown>):
   return { ok: true };
 }
 
-const SOURCE_RE = /^[a-z0-9][a-z0-9.\-]{1,80}$/;
+// Promote/demote another admin to super-admin. Super-admin only; can't demote
+// yourself (avoids locking out the last super-admin by accident).
+export async function setSuperAdmin(email: string, value: boolean): Promise<Result> {
+  let me: string;
+  try {
+    me = await requireSuperAdmin();
+  } catch {
+    return { ok: false, error: "No autorizado." };
+  }
+  const clean = email.trim().toLowerCase();
+  if (clean === me && !value)
+    return { ok: false, error: "No puedes quitarte el rol de super-admin a ti mismo." };
+  const svc = getServerSupabase();
+  const { error } = await svc
+    .from("admin_emails")
+    .update({ is_super_admin: value })
+    .eq("email", clean);
+  if (error) return { ok: false, error: "No se pudo actualizar el rol." };
+  revalidatePath("/admin/admins");
+  return { ok: true };
+}
+
+// --- Manage collaborators (API partners) -------------------------------------
+const SOURCE_RE = /^[a-z0-9][a-z0-9.\-]{1,80}$/; // dominio/identificador del socio
 
 export async function createPartner(input: {
   name: string;
@@ -299,7 +382,7 @@ export async function createPartner(input: {
   contact?: string;
 }): Promise<PartnerResult> {
   try {
-    await requireAdmin();
+    await requireSuperAdmin();
   } catch {
     return { ok: false, error: "No autorizado." };
   }
@@ -333,9 +416,100 @@ export async function createPartner(input: {
   return { ok: true, key, id: data.id };
 }
 
+// --- Batch ingest (super-admin) ----------------------------------------------
+// Ingest an external data dump (JSON / CSV / SQL INSERT statements). The dump is
+// PARSED into canonical reports (never executed), validated by buildRow, and
+// upserted through the SAME audited RPC as the public API. Rows are stamped with
+// `source` (idempotent on (source, external_id)); audit is attributed to the hub.
+const MAX_BATCH_ROWS = 2000;
+
+type BatchResult = Result & {
+  accepted?: number;
+  rejected?: number;
+  errored?: number;
+  sample?: Array<{ external_id: string | null; status: string; error?: string }>;
+};
+
+export async function ingestBatch(input: {
+  text: string;
+  format?: "auto" | "json" | "csv" | "sql";
+  source: string;
+}): Promise<BatchResult> {
+  try {
+    await requireSuperAdmin();
+  } catch {
+    return { ok: false, error: "No autorizado." };
+  }
+  const source = String(input.source || "").trim().toLowerCase();
+  if (!SOURCE_RE.test(source))
+    return { ok: false, error: "Source inválido (ej: cruzroja-dump)." };
+
+  let reports: unknown[];
+  try {
+    reports = parseDump(String(input.text || ""), input.format ?? "auto");
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "No se pudo leer el dump." };
+  }
+  if (!reports.length) return { ok: false, error: "El dump no contiene filas." };
+  if (reports.length > MAX_BATCH_ROWS)
+    return { ok: false, error: `Máximo ${MAX_BATCH_ROWS} filas por carga (recibidas ${reports.length}).` };
+
+  // Validate + route + dedup intra-batch by external_id (same as /api/v1/reports).
+  const results: Array<{ external_id: string | null; status: string; error?: string }> = [];
+  const byTable: Record<string, Map<string, Record<string, unknown>>> = {};
+  for (const rep of reports) {
+    const built = buildRow(rep, source) as
+      | { ok: true; table: string; row: Record<string, unknown> }
+      | { ok: false; error: string };
+    const extId = (rep as { external_id?: string })?.external_id ?? null;
+    if (!built.ok) { results.push({ external_id: extId, status: "rejected", error: built.error }); continue; }
+    (byTable[built.table] ??= new Map()).set(built.row.external_id as string, built.row);
+  }
+
+  const svc = getServerSupabase();
+  const tables = (INGEST_TABLES as string[]).filter((t) => byTable[t]?.size);
+  const outcomes = await Promise.allSettled(
+    tables.map((t) =>
+      svc.rpc("ingest_reports", {
+        p_table: t,
+        p_rows: [...byTable[t].values()],
+        p_partner: VA_PARTNER_ID,
+        p_source: source,
+        p_request_id: null,
+        p_ip: null,
+        p_user_agent: null,
+      }),
+    ),
+  );
+
+  let accepted = 0;
+  tables.forEach((t, i) => {
+    const rows = [...byTable[t].values()];
+    const o = outcomes[i];
+    const failed = o.status === "rejected" || o.value.error;
+    if (failed) {
+      for (const row of rows)
+        results.push({ external_id: (row.external_id as string) ?? null, status: "error", error: "Error de base de datos." });
+    } else {
+      accepted += rows.length;
+      for (const row of rows)
+        results.push({ external_id: (row.external_id as string) ?? null, status: "upserted" });
+    }
+  });
+
+  const rejected = results.filter((r) => r.status === "rejected").length;
+  const errored = results.filter((r) => r.status === "error").length;
+  revalidatePath("/admin/ingesta");
+  return {
+    ok: accepted > 0 || (rejected === 0 && errored === 0),
+    accepted, rejected, errored,
+    sample: results.filter((r) => r.status !== "upserted").slice(0, 20),
+  };
+}
+
 export async function revokePartner(id: string): Promise<Result> {
   try {
-    await requireAdmin();
+    await requireSuperAdmin();
   } catch {
     return { ok: false, error: "No autorizado." };
   }
