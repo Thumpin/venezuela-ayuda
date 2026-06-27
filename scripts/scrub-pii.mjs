@@ -13,8 +13,10 @@
 // digits. Captures the whole number.
 const PHONE_RE =
   /\+\d[\d\s().-]{6,}\d|\(?0?4\d{2}\)?[\s().-]*\d{3}[\s().-]*\d{4}|\b\d{7,15}\b/g;
-// Venezuelan cédula: 7-8 digits with thousands dots, optionally V-/E- prefixed.
-const CEDULA_RE = /\b[VE]?-?\d{1,2}\.\d{3}\.\d{3}\b/g;
+// Venezuelan cédula: optional V/E prefix, optional dots/dashes, 6-9 digits.
+const CEDULA_DOTTED_RE = /\b[VE]?-?\d{1,2}\.\d{3}\.\d{3}\b/gi;
+const CEDULA_PLAIN_RE = /\b[VE]-?\d{6,9}\b/gi;
+const CEDULA_CI_RE = /\b(?:CI|C[IÍ]|C[EÉ]DULA)\s*[:.]?\s*[VE]?-?\d[\d.\s-]{5,12}\d\b/gi;
 
 // Is this run a plausible phone? 7..15 effective digits.
 function isPhoneRun(s) {
@@ -52,7 +54,9 @@ export function scrubContactPII(text) {
       const isDecimalSeries = /^\d{1,3}([.,]\d{1,2}[\s]*){1,}$/.test(m.trim());
       return isDateTime || isDecimalSeries || m.replace(/\D/g, "").length < 8 ? m : " ";
     })
-    .replace(CEDULA_RE, " ")
+    .replace(CEDULA_DOTTED_RE, " ")
+    .replace(CEDULA_PLAIN_RE, " ")
+    .replace(CEDULA_CI_RE, " ")
     // dangling labels left behind ("CI", "Cédula", "número", "teléfono")
     .replace(/\b(c[ií]|c[eé]dula|tel[eé]fono|n[uú]mero|contactarse al|llamar al)\b\s*[:.]?/gi, " ")
     // orphan '+'/'(' the removed phone left behind

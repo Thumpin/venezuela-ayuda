@@ -44,6 +44,11 @@ test("VE en paréntesis '(0412)2408575'", () => {
   assert.equal(hasPII(scrubContactPII("reporta: Miguel (0412)2408575").clean), false);
 });
 
+test("cédula sin puntos V-/E- se va", () => {
+  assert.equal(hasPII(scrubContactPII("doc V-12345678").clean), false);
+  assert.equal(hasPII(scrubContactPII("E87654321 reporta").clean), false);
+});
+
 test("cédula con puntos se va (PII de identidad)", () => {
   assert.equal(hasPII(scrubContactPII("11.057.649 reporta: Christian").clean), false);
   assert.equal(hasPII(scrubContactPII("CI 5.163.328 cojea").clean), false);
