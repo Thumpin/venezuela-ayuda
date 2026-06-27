@@ -727,22 +727,10 @@ export async function submitFoundChild(
       throw error;
     }
 
-    // Siembra el primer evento de la cadena de custodia con lo que ya se sabe.
-    // Best-effort: si falla, el registro ya quedó guardado (no reintentar el alta
-    // entera evita un niño duplicado); last_custody_at ya viaja en la fila.
-    try {
-      await supabase.from("child_custody_events").insert({
-        child_id: id,
-        event_date: last_seen_at,
-        facility_name: hospital || last_seen_place || null,
-        status,
-        note: "Registro inicial",
-        source: VA_SOURCE,
-        recorded_by: reporter_name,
-      });
-    } catch {
-      /* el evento semilla es opcional; el alta ya está persistida */
-    }
+    // El primer evento de la cadena de custodia ("Registro inicial") lo siembra
+    // el trigger seed_child_custody (migración 0023) al insertar en
+    // unaccompanied_children, así que TODA alta —UI, API o importador— arranca su
+    // cadena igual. No lo sembramos acá para no duplicarlo.
   } catch {
     return {
       ok: false,

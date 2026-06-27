@@ -141,9 +141,9 @@ con origen conocido.**
 
 ---
 
-## 2.5 Catálogo de `type` (los 5 valores → tabla/vista)
+## 2.5 Catálogo de `type` (los 6 valores → tabla/vista)
 
-`type` es un **conjunto cerrado de 5 valores** — el catálogo del hub. Es el mismo
+`type` es un **conjunto cerrado de 6 valores** — el catálogo del hub. Es el mismo
 en escritura (`POST /api/v1/reports`, campo del reporte) y en lectura
 (`GET /api/v1/reports`, parámetro requerido). Cada valor mapea a una tabla/vista
 concreta:
@@ -155,11 +155,19 @@ concreta:
 | `help_request` | Solicitud de ayuda (médica, agua, rescate…) | `help_requests` | `public_help_requests` |
 | `help_offer` | Oferta de ayuda / recursos disponibles | `help_offers` | `public_help_offers` |
 | `damaged_building` | Edificio o estructura dañada | `damaged_reports` | `public_damaged_reports` |
+| `unaccompanied_child` | Niño/a no acompañado encontrado (registro de salvaguarda) | `unaccompanied_children` | `public_unaccompanied_children` (**SOLO el nombre**) |
 
 `missing_person` y `checkin` **comparten la tabla/vista `checkins`** y se separan
 por `status` — por eso son dos `type` distintos aunque vivan en la misma vista.
 Cualquier otro valor de `type` se rechaza (fila rechazada en escritura, 400 en
 lectura).
+
+**Protección infantil (`unaccompanied_child`):** por ser datos de menores, la
+lectura pública proyecta **solo el nombre** (`id`, `name`, `created_at`) — nunca
+ubicación, foto, custodio ni contacto. Todo lo demás vive en la tabla privada. El
+alta —ya sea por el form del sitio o por esta API— escribe por la misma RPC
+auditada y **siembra automáticamente el primer evento de la cadena de custodia**
+(`"Registro inicial"`), igual por ambos caminos.
 
 ---
 
@@ -231,17 +239,35 @@ tablas; no hay envelope nuevo). Máx ~200 filas por request.
       "name": "María R.",
       "status": "SAFE",                   // SAFE|NEEDS_HELP|LOOKING_FOR_SOMEONE
       "city": "Valencia"
+    },
+    {
+      "type": "unaccompanied_child",      // → tabla unaccompanied_children
+      "external_id": "cruzroja:nino-12",
+      "name": "Luisito",                  // ÚNICO campo público (protección infantil)
+      "reporter_name": "Ana López",       // PRIVADO
+      "age": "7 años",
+      "gender": "BOY",                    // BOY|GIRL|UNSPECIFIED
+      "status": "IN_SHELTER",             // ALONE_NO_FAMILY|ACCOMPANIED_SEEKING_FAMILY|IN_SHELTER|IN_HOSPITAL|REUNITED|WITH_NON_FAMILY
+      "last_seen_at": "2026-06-25",       // fecha ISO YYYY-MM-DD
+      "hospital": "Refugio La Guaira",    // PRIVADO
+      "direct_contact": true,
+      "description": "Camisa azul, busca a su mamá",  // PRIVADO
+      "notes": "Atendido por la Cruz Roja"            // PRIVADO
     }
   ]
 }
 ```
 
 Reglas:
-- `external_id` es **requerido** (sin él no hay idempotencia).
+- `external_id` es **requerido** (sin él no hay idempotencia) — también para
+  `unaccompanied_child`.
 - `source` y `source_url`: **no mandes `source`**, lo estampamos desde tu key.
   `source_url` sí lo mandas (link de vuelta a tu registro).
 - `contact` / teléfono → se guarda en campo privado, **nunca** sale por lectura.
 - Coordenadas fuera del bounding box de Venezuela se descartan (no rompen la fila).
+- `unaccompanied_child`: solo `name` es público; el resto se guarda privado y al
+  crearse se siembra el primer evento de custodia (ver §2.5). `city`/`contact`/
+  `place_name` no aplican a este tipo (se ignoran).
 
 **Respuesta `200`**
 ```jsonc

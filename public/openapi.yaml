@@ -16,7 +16,7 @@ info:
     por `GET /api/v1/reports/{id}/history`.
 
     ## Tipos de reporte (`type`)
-    `type` es un **conjunto cerrado de 5 valores** — el catálogo del hub. Es el
+    `type` es un **conjunto cerrado de 6 valores** — el catálogo del hub. Es el
     mismo en escritura (`POST /api/v1/reports`, campo del reporte) y en lectura
     (`GET /api/v1/reports`, parámetro requerido):
 
@@ -373,6 +373,7 @@ components:
         - $ref: "#/components/schemas/HelpRequestReport"
         - $ref: "#/components/schemas/HelpOfferReport"
         - $ref: "#/components/schemas/DamagedBuildingReport"
+        - $ref: "#/components/schemas/UnaccompaniedChildReport"
       discriminator:
         propertyName: type
         mapping:
@@ -381,6 +382,7 @@ components:
           help_request: "#/components/schemas/HelpRequestReport"
           help_offer: "#/components/schemas/HelpOfferReport"
           damaged_building: "#/components/schemas/DamagedBuildingReport"
+          unaccompanied_child: "#/components/schemas/UnaccompaniedChildReport"
 
     # Campos comunes a todo reporte.
     CommonReportFields:
@@ -457,6 +459,37 @@ components:
             description: { type: string, maxLength: 800 }
             severity: { type: string, enum: [CRACKS, PARTIAL, COLLAPSE_RISK, COLLAPSED], default: PARTIAL, description: "Inválida → PARTIAL." }
             photo_url: { type: string, maxLength: 500 }
+
+    # Niño/a no acompañado encontrado (registro de salvaguarda). NO usa los campos
+    # comunes `city`/`contact`/`place_name` (se ignoran si se mandan). PROTECCIÓN
+    # INFANTIL: todo salvo `name` se guarda PRIVADO y la lectura pública proyecta
+    # solo el nombre. Al crearse se siembra automáticamente el primer evento de la
+    # cadena de custodia ("Registro inicial").
+    UnaccompaniedChildReport:
+      type: object
+      required: [type, external_id, name]
+      properties:
+        type: { type: string, const: unaccompanied_child }
+        external_id: { type: string, maxLength: 200, description: "Tu id estable. Requerido (idempotencia por (source, external_id))." }
+        source_url: { type: string, maxLength: 500, description: "Link de vuelta a tu registro." }
+        name: { type: string, maxLength: 80, description: "Nombre o apodo. ÚNICO campo público (para que un familiar lo reconozca)." }
+        reporter_name: { type: string, maxLength: 80, description: "PRIVADO — nombre de quien reporta." }
+        age: { type: string, maxLength: 40, description: "Edad aproximada (texto libre: años/meses/desconocida)." }
+        gender: { type: string, enum: [BOY, GIRL, UNSPECIFIED], description: "Inválido → null." }
+        description: { type: string, maxLength: 800, description: "PRIVADO — descripción física." }
+        found_place: { type: string, maxLength: 200, description: "PRIVADO — lugar donde fue encontrado." }
+        found_at: { type: string, format: date, description: "Fecha ISO `YYYY-MM-DD`. Otro formato → null." }
+        last_seen_at: { type: string, format: date, description: "Fecha ISO `YYYY-MM-DD`. Otro formato → null." }
+        hospital: { type: string, maxLength: 120, description: "PRIVADO — hospital o centro de salud." }
+        last_seen_place: { type: string, maxLength: 200, description: "PRIVADO — último lugar donde se le vio." }
+        status: { type: string, enum: [ALONE_NO_FAMILY, ACCOMPANIED_SEEKING_FAMILY, IN_SHELTER, IN_HOSPITAL, REUNITED, WITH_NON_FAMILY], default: ALONE_NO_FAMILY, description: "Inválido → ALONE_NO_FAMILY." }
+        direct_contact: { type: boolean, description: "¿Quien reporta tuvo contacto directo? false = la info viene de otra fuente." }
+        info_source: { type: string, enum: [SOCIAL_MEDIA, FRIEND_FAMILY, INSTITUTION, EXISTING_LIST, OTHER], description: "Si no hubo contacto directo, de dónde viene la info. Inválido → null." }
+        info_source_detail: { type: string, maxLength: 200, description: "Detalle de la fuente." }
+        notes: { type: string, maxLength: 800, description: "PRIVADO — notas adicionales." }
+        photo_url: { type: string, maxLength: 500, description: "PRIVADO — foto (protección infantil)." }
+        latitude: { type: number, description: "PRIVADO. Se descarta si cae fuera de Venezuela." }
+        longitude: { type: number, description: "PRIVADO." }
     IngestResponse:
       type: object
       required: [accepted, rejected, errored, results]
@@ -492,6 +525,7 @@ components:
               - $ref: "#/components/schemas/HelpRequestPublic"
               - $ref: "#/components/schemas/HelpOfferPublic"
               - $ref: "#/components/schemas/DamagedBuildingPublic"
+              - $ref: "#/components/schemas/UnaccompaniedChildPublic"
         next_cursor:
           type: [string, "null"]
           description: "`created_at|id` del último item; pasalo como `since` para la siguiente página. `null` cuando no hay más."
@@ -567,6 +601,14 @@ components:
         source_url: { type: [string, "null"] }
         risk_level: { type: [string, "null"], enum: [ROJO, AMARILLO, NINGUNA, null] }
         risk_priority: { type: [boolean, "null"] }
+
+    UnaccompaniedChildPublic:
+      type: object
+      description: "Niño/a no acompañado. PROTECCIÓN INFANTIL: la lectura pública proyecta SOLO el nombre (para que un familiar lo reconozca). Nunca ubicación, foto, custodio ni contacto."
+      properties:
+        id: { type: string }
+        name: { type: [string, "null"] }
+        created_at: { type: string }
 
     # ── Un reporte por id (GET/PATCH /reports/{id}) ────────────────────────
     # La proyección pública de la vista + el discriminador `type`. missing_person
