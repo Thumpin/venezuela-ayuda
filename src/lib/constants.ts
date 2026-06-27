@@ -195,6 +195,7 @@ export const LIMITS = {
   message: 500,
   description: 800,
   phone: 30,
+  cedula: 15,
   availability: 200,
   place_name: 120,
   itemName: 40,
