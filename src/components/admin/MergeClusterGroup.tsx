@@ -96,17 +96,45 @@ export default function MergeClusterGroup({
     }
   }
 
+  async function handleReject() {
+    setPending(true);
+    setError(null);
+    try {
+      for (const p of cluster.pairs) {
+        const res = await decideMerge(p.id, "reject");
+        if (!res.ok) {
+          setError(res.error ?? "No se pudo procesar la separación.");
+          setPending(false);
+          return;
+        }
+      }
+      setDone("separated");
+      setTimeout(() => onDone?.(), 300);
+    } catch {
+      setError("Ocurrió un error inesperado al separar los registros.");
+      setPending(false);
+    }
+  }
+
   if (done) {
     return (
       <div className={`rounded-2xl border-2 p-5 text-center text-sm shadow-md bg-white transition-all duration-300 ${
-        done === "skipped" ? "border-amber-200" : "border-emerald-200"
+        done === "skipped" ? "border-amber-200"
+        : done === "separated" ? "border-rose-200"
+        : "border-emerald-200"
       }`}>
-        <div className={`mb-1 text-lg ${done === "skipped" ? "text-amber-500" : "text-emerald-500"}`}>
-          {done === "skipped" ? "⋯" : "✓"}
+        <div className={`mb-1 text-lg ${
+          done === "skipped" ? "text-amber-500"
+          : done === "separated" ? "text-rose-500"
+          : "text-emerald-500"
+        }`}>
+          {done === "skipped" ? "⋯" : done === "separated" ? "✗" : "✓"}
         </div>
         <p className="text-[#14212e]">
           {done === "skipped" ? (
             <span className="text-slate-500">Lote saltado para revisar después.</span>
+          ) : done === "separated" ? (
+            <span className="text-slate-500">Los registros del grupo fueron marcados como no duplicados (separados).</span>
           ) : (
             <>
               Grupo de <span className="font-semibold">{cluster.members.length}</span> registros resuelto.
@@ -240,6 +268,15 @@ export default function MergeClusterGroup({
           className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-xs font-semibold text-slate-500 transition hover:bg-slate-50 active:scale-[0.98] disabled:opacity-50"
         >
           No estoy seguro (Saltar lote)
+        </button>
+        <button
+          type="button"
+          disabled={pending}
+          onClick={handleReject}
+          className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-2 text-xs font-semibold text-rose-700 transition hover:bg-rose-100 active:scale-[0.98] disabled:opacity-50"
+          title="Ninguno de estos registros es duplicado de los demás. Se mantendrán todos por separado."
+        >
+          {pending ? "Procesando..." : "❌ Separar (No son la misma persona)"}
         </button>
         <button
           type="button"

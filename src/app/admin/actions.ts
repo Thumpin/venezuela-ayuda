@@ -171,7 +171,7 @@ export async function deleteReport(table: string, id: string): Promise<Result> {
 
 export async function decideMerge(
   candidateId: string,
-  decision: "duplicate" | "consolidate" | "skip",
+  decision: "duplicate" | "consolidate" | "skip" | "reject",
 ): Promise<Result> {
   let email: string;
   try { email = await requireAdmin(); } catch { return { ok: false, error: "No autorizado." }; }
@@ -210,7 +210,12 @@ export async function decideMerge(
     );
   }
 
-  const statusMap: Record<string, string> = { duplicate: "MERGED", consolidate: "MERGED", skip: "SKIPPED" };
+  const statusMap: Record<string, string> = {
+    duplicate: "MERGED",
+    consolidate: "MERGED",
+    skip: "SKIPPED",
+    reject: "REJECTED"
+  };
   const { error: updErr } = await svc
     .from("merge_candidates")
     .update({
