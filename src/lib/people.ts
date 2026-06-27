@@ -32,6 +32,7 @@ export interface MergedPerson {
   description: string | null; // quoted body (richest available)
   sources: PersonSourceLink[]; // primary = sources[0]; rest counted as "+N más"
   hospitalName?: string | null; // name of hospital if registered
+  checkinId?: string | null; // UUID of the app checkin — enables public status update
 }
 
 // Internal normalized hit before grouping.
@@ -46,6 +47,7 @@ interface Hit {
   updated: string | null;
   source: PersonSourceLink;
   hospitalName?: string | null;
+  checkinId?: string | null;
 }
 
 // Priority for picking the single display status (when nobody is found).
@@ -72,6 +74,7 @@ function checkinHit(c: PublicCheckin): Hit {
     status: c.status,
     description: c.message,
     updated: c.created_at,
+    checkinId: c.id,
     source: c.source
       ? { label: c.source, href: c.source_url, external: true }
       : { label: "la app", href: `/persona/${c.id}`, external: false },
@@ -200,6 +203,7 @@ export function mergePeople(
       description: pickDescription(bucket),
       sources,
       hospitalName,
+      checkinId: bucket.find((h) => h.checkinId)?.checkinId ?? null,
     };
   });
 

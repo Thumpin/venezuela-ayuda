@@ -641,3 +641,51 @@ export async function submitCollectionCenter(
 
   return { ok: true };
 }
+
+// 6. Public status update for missing-person checkins -------------------------
+// Allows the original reporter (with manage_token) to update the status of a
+// LOOKING_FOR_SOMEONE checkin without admin credentials.
+const ALLOWED_PUBLIC_STATUSES = [
+  "SAFE",
+  "LOOKING_FOR_SOMEONE",
+  "HOSPITALIZADO",
+  "DIFUNTO",
+] as const;
+type PublicCheckinStatus = (typeof ALLOWED_PUBLIC_STATUSES)[number];
+
+export async function updateCheckinStatus(
+  id: string,
+  token: string,
+  status: PublicCheckinStatus
+): Promise<{ ok: boolean; error?: string }> {
+  if (!isSupabaseConfigured()) return { ok: false, error: "Servicio no disponible." };
+  const limited = rateLimit(await clientKey("manage"), { limit: 20, windowSec: 60 });
+  if (!limited.ok)
+    return { ok: false, error: `Demasiados intentos. Espera ${limited.retryAfterSec}s.` };
+  if (!UUID_RE.test(id) || !token) return { ok: false, error: "No autorizado." };
+  if (!(ALLOWED_PUBLIC_STATUSES as readonly string[]).includes(status))
+    return { ok: false, error: "Estado inválido." };
+  if (!(await verifyManageToken("checkins", id, token)))
+    return { ok: false, error: "Token inválido o incorrecto." };
+  try {
+    const supabase = getServerSupabase();
+    const patch: Record<string, unknown> = { status };
+    // If marking as found (not missing anymore), record the timestamp.
+    if (status === "SAFE" || status === "HOSPITALIZADO" || status === "DIFUNTO") {
+      patch.found_at = new Date().toISOString();
+    } else {
+      patch.found_at = null;
+    }
+    const { error } = await supabase.rpc(
+      "patch_report",
+      patchArgs("checkins", id, patch)
+    );
+    if (error) throw error;
+  } catch {
+    return { ok: false, error: "No se pudo actualizar. Intenta de nuevo." };
+  }
+  revalidatePath("/mapa");
+  revalidatePath("/buscar");
+  revalidatePath(`/persona/${id}`);
+  return { ok: true };
+}
