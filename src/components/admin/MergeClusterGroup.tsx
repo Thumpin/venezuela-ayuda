@@ -267,12 +267,12 @@ export default function MergeClusterGroup({
       </div>
 
       {/* Global Actions */}
-      <div className="mt-5 flex flex-wrap gap-2.5 justify-end border-t border-sky-100 pt-4">
+      <div className="mt-5 flex flex-col sm:flex-row gap-2.5 justify-end border-t border-sky-100 pt-4">
         <button
           type="button"
           disabled={pending}
           onClick={handleSkip}
-          className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-xs font-semibold text-slate-500 transition hover:bg-slate-50 active:scale-[0.98] disabled:opacity-50"
+          className="w-full sm:w-auto text-center justify-center rounded-lg border border-slate-300 bg-white px-4 py-2 text-xs font-semibold text-slate-500 transition hover:bg-slate-50 active:scale-[0.98] disabled:opacity-50"
         >
           No estoy seguro (Saltar lote)
         </button>
@@ -280,7 +280,7 @@ export default function MergeClusterGroup({
           type="button"
           disabled={pending}
           onClick={handleReject}
-          className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-2 text-xs font-semibold text-rose-700 transition hover:bg-rose-100 active:scale-[0.98] disabled:opacity-50"
+          className="w-full sm:w-auto text-center justify-center rounded-lg border border-rose-200 bg-rose-50 px-4 py-2 text-xs font-semibold text-rose-700 transition hover:bg-rose-100 active:scale-[0.98] disabled:opacity-50"
           title="Ninguno de estos registros es duplicado de los demás. Se mantendrán todos por separado."
         >
           {pending ? "Procesando..." : "❌ Separar (No son la misma persona)"}
@@ -289,7 +289,7 @@ export default function MergeClusterGroup({
           type="button"
           disabled={pending}
           onClick={handleResolve}
-          className="rounded-lg bg-emerald-600 hover:bg-emerald-700 px-5 py-2 text-xs font-bold text-white shadow transition active:scale-[0.98] disabled:opacity-50"
+          className="w-full sm:w-auto text-center justify-center rounded-lg bg-emerald-600 hover:bg-emerald-700 px-5 py-2 text-xs font-bold text-white shadow transition active:scale-[0.98] disabled:opacity-50"
         >
           {pending ? "Guardando..." : "✅ Resolver Duplicados del Grupo"}
         </button>

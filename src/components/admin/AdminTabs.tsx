@@ -365,14 +365,14 @@ export default function AdminTabs({ centers, damaged, mod, hospitalized }: Admin
   return (
     <div className="mt-8">
       {/* Tab Navigation */}
-      <div className="flex flex-wrap gap-2 border-b border-[#e6ecf2] pb-2">
+      <div className="flex overflow-x-auto whitespace-nowrap gap-2 border-b border-[#e6ecf2] pb-2 -mx-4 px-4 sm:mx-0 sm:px-0 sm:flex-wrap [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
         {tabs.map((tab) => {
           const isActive = activeTab === tab.id;
           return (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold transition ${
+              className={`inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold transition shrink-0 ${
                 isActive
                   ? "bg-[#2563a8] text-white"
                   : "text-[#5b6b7b] hover:bg-slate-50"
