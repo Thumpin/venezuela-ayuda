@@ -57,7 +57,7 @@ export async function GET(req: Request) {
   const resolved = resolveType(url.searchParams.get("type") ?? "");
   if (!resolved.ok) {
     return NextResponse.json(
-      { error: "Parámetro 'type' inválido o ausente. Valores: missing_person, checkin, help_request, help_offer, damaged_building." },
+      { error: "Parámetro 'type' inválido o ausente. Valores: missing_person, checkin, help_request, help_offer, damaged_building, unaccompanied_child." },
       { status: 400 }
     );
   }
@@ -92,7 +92,9 @@ export async function GET(req: Request) {
     }
   }
 
-  if (city) query = query.ilike("city", `%${city}%`);
+  // El filtro city solo aplica a vistas que exponen la columna (la de niños no
+  // acompañados es solo-nombre y no la tiene → se ignora en silencio).
+  if (city && resolved.select.includes("city")) query = query.ilike("city", `%${city}%`);
 
   const { data, error } = await query;
   if (error) {

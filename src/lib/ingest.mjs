@@ -16,6 +16,9 @@ import {
   SEVERITY,
   CHECKIN_STATUS,
   REQUEST_STATUS,
+  CHILD_STATUS,
+  CHILD_GENDER,
+  CHILD_INFO_SOURCE,
   LIMITS,
 } from "./canonical.mjs";
 
@@ -42,6 +45,17 @@ function coords(lat, lng) {
 
 const oneOf = (v, set, fallback = null) => (set.includes(v) ? v : fallback);
 const err = (m) => ({ ok: false, error: m });
+
+// Fecha ISO `YYYY-MM-DD` (la parte de fecha de un date de Postgres), o null.
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+const cleanDate = (v) => (typeof v === "string" && ISO_DATE.test(v.trim()) ? v.trim() : null);
+
+// "true"/"false"/bool → boolean, o null si no viene. Para direct_contact.
+function cleanBool(v) {
+  if (v === true || v === "true") return true;
+  if (v === false || v === "false") return false;
+  return null;
+}
 
 // help_offer.available: default true; clientes con JSON laxo pueden mandar
 // false/"false"/0/"0"/"no" → tratarlos como NO disponible (no voltearlos a true).
@@ -137,10 +151,38 @@ export function buildRow(report, source) {
         },
       };
     }
+    case "unaccompanied_child": {
+      const name = clean(report.name, LIMITS.name);
+      if (!name) return err("name requerido");
+      return {
+        ok: true,
+        table: "unaccompanied_children",
+        row: {
+          ...base, name,
+          reporter_name: clean(report.reporter_name, LIMITS.name), // PRIVADO
+          age: clean(report.age, LIMITS.age),
+          gender: oneOf(report.gender, CHILD_GENDER),
+          description: clean(report.description, LIMITS.description),
+          found_place: clean(report.found_place, LIMITS.found_place),
+          found_at: cleanDate(report.found_at),
+          last_seen_at: cleanDate(report.last_seen_at),
+          hospital: clean(report.hospital, LIMITS.hospital),
+          last_seen_place: clean(report.last_seen_place, LIMITS.last_seen_place),
+          status: oneOf(report.status, CHILD_STATUS, "ALONE_NO_FAMILY"),
+          direct_contact: cleanBool(report.direct_contact),
+          info_source: oneOf(report.info_source, CHILD_INFO_SOURCE),
+          info_source_detail: clean(report.info_source_detail, LIMITS.info_source_detail),
+          notes: clean(report.notes, LIMITS.notes),
+          photo_url, // PRIVADO en la vista pública (solo-nombre)
+          latitude, longitude,
+          dedup_key: fuzzyKey(name),
+        },
+      };
+    }
     default:
       return err(`type desconocido: ${report.type}`);
   }
 }
 
 // Tablas válidas (para el upsert por lotes en la ruta).
-export const INGEST_TABLES = ["checkins", "help_requests", "help_offers", "damaged_reports"];
+export const INGEST_TABLES = ["checkins", "help_requests", "help_offers", "damaged_reports", "unaccompanied_children"];

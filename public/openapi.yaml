@@ -27,6 +27,11 @@ info:
     | `help_request` | Solicitud de ayuda (médica, agua, rescate…) |
     | `help_offer` | Oferta de ayuda / recursos disponibles |
     | `damaged_building` | Edificio o estructura dañada |
+    | `unaccompanied_child` | Niño/a no acompañado encontrado (registro de salvaguarda) |
+
+    Por **protección infantil**, la lectura pública de `unaccompanied_child`
+    proyecta **solo el nombre** (`id`, `name`, `created_at`): nunca ubicación,
+    foto, custodio ni contacto. El resto vive en la tabla privada.
 
     `missing_person` y `checkin` son dos tipos separados porque describen
     situaciones opuestas (a alguien lo están buscando vs. alguien reporta que está
@@ -163,10 +168,10 @@ paths:
         - name: type
           in: query
           required: true
-          description: Catálogo del hub (los 5 valores). missing_person/checkin salen de la misma vista, separados por status.
+          description: Catálogo del hub. missing_person/checkin salen de la misma vista, separados por status. unaccompanied_child proyecta solo-nombre (protección infantil).
           schema:
             type: string
-            enum: [missing_person, checkin, help_request, help_offer, damaged_building]
+            enum: [missing_person, checkin, help_request, help_offer, damaged_building, unaccompanied_child]
         - name: since
           in: query
           required: false

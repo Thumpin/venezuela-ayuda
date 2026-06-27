@@ -32,6 +32,47 @@ test("help_request válido → help_requests, urgency default MEDIUM, contacto p
   assert.equal(r.row.contact, "+58414");
 });
 
+test("unaccompanied_child válido → unaccompanied_children, status default, dedup_key", () => {
+  const r = buildRow(
+    {
+      type: "unaccompanied_child",
+      external_id: "c1",
+      name: "Niño sin nombre",
+      age: "5 años",
+      gender: "BOY",
+      status: "IN_HOSPITAL",
+      direct_contact: "false",
+      info_source: "SOCIAL_MEDIA",
+      last_seen_at: "2026-06-25",
+    },
+    SRC
+  );
+  assert.equal(r.ok, true);
+  assert.equal(r.table, "unaccompanied_children");
+  assert.equal(r.row.status, "IN_HOSPITAL");
+  assert.equal(r.row.gender, "BOY");
+  assert.equal(r.row.direct_contact, false);
+  assert.equal(r.row.info_source, "SOCIAL_MEDIA");
+  assert.equal(r.row.last_seen_at, "2026-06-25");
+  assert.equal(r.row.source, SRC);
+  assert.ok(r.row.dedup_key);
+});
+
+test("unaccompanied_child: enums/fecha inválidos → fallback seguro", () => {
+  const r = buildRow(
+    { type: "unaccompanied_child", external_id: "c2", name: "X", status: "ZZZ", gender: "Z", last_seen_at: "ayer" },
+    SRC
+  );
+  assert.equal(r.ok, true);
+  assert.equal(r.row.status, "ALONE_NO_FAMILY"); // fallback
+  assert.equal(r.row.gender, null);
+  assert.equal(r.row.last_seen_at, null);
+});
+
+test("unaccompanied_child sin name → rechazado", () => {
+  assert.equal(buildRow({ type: "unaccompanied_child", external_id: "c3" }, SRC).ok, false);
+});
+
 test("help_request con category inválida → rechazado", () => {
   const r = buildRow({ type: "help_request", external_id: "r2", category: "lol", description: "x", latitude: 10.5, longitude: -66.9 }, SRC);
   assert.equal(r.ok, false);

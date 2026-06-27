@@ -183,6 +183,34 @@ export const REQUEST_STATUSES = {
 } as const;
 export type RequestStatus = keyof typeof REQUEST_STATUSES;
 
+// Registro de niños no acompañados (issue #47). Labels = opciones literales del
+// formulario; las claves son los valores canónicos (canonical.mjs / migración 0021).
+export const CHILD_STATUSES = {
+  ALONE_NO_FAMILY: { label: "Sólo sin familiares ni adultos de referencia cerca", color: "#c9483a", tintBg: "#fbe9e4" },
+  ACCOMPANIED_SEEKING_FAMILY: { label: "Acompañado pero buscando a su familia", color: "#b5811f", tintBg: "#fff5e6" },
+  IN_SHELTER: { label: "En refugio", color: "#2563a8", tintBg: "#eaf1fb" },
+  IN_HOSPITAL: { label: "En hospital o centro de salud", color: "#e2603a", tintBg: "#fdf0e9" },
+  REUNITED: { label: "Reunificado con su familia", color: "#2f9e6e", tintBg: "#eaf3ec" },
+  WITH_NON_FAMILY: { label: "Acompañado por alguien que no es familia ni conocido", color: "#7a5b9b", tintBg: "#f0eafb" },
+} as const;
+export type ChildStatus = keyof typeof CHILD_STATUSES;
+
+export const CHILD_GENDERS = {
+  BOY: { label: "Niño" },
+  GIRL: { label: "Niña" },
+  UNSPECIFIED: { label: "No especificado" },
+} as const;
+export type ChildGender = keyof typeof CHILD_GENDERS;
+
+export const CHILD_INFO_SOURCES = {
+  SOCIAL_MEDIA: { label: "Redes sociales (publicación, grupo, historia)" },
+  FRIEND_FAMILY: { label: "Un amigo, familiar o conocido" },
+  INSTITUTION: { label: "Una institución (hospital, refugio, organización)" },
+  EXISTING_LIST: { label: "Una lista o registro existente" },
+  OTHER: { label: "Otra fuente" },
+} as const;
+export type ChildInfoSource = keyof typeof CHILD_INFO_SOURCES;
+
 // Brand palette (design system). Calm, trustworthy, community — not alarmist.
 export const BRAND = {
   ink: "#14212e",

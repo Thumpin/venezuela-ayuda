@@ -193,3 +193,69 @@ export async function listCollectionCentersAdmin(): Promise<AdminCenterRow[]> {
     .limit(300);
   return (data ?? []) as AdminCenterRow[];
 }
+
+// --- Niños no acompañados (super-admin) -------------------------------------
+// La ficha COMPLETA (con PII) solo se ve acá; el detalle público muestra solo el
+// nombre + el historial. Lectura con service key (la tabla es privada).
+export interface AdminChildRow {
+  id: string;
+  name: string;
+  reporter_name: string | null;
+  age: string | null;
+  gender: string | null;
+  description: string | null;
+  found_place: string | null;
+  found_at: string | null;
+  last_seen_at: string | null;
+  hospital: string | null;
+  last_seen_place: string | null;
+  status: string;
+  direct_contact: boolean | null;
+  info_source: string | null;
+  info_source_detail: string | null;
+  notes: string | null;
+  photo_url: string | null;
+  last_custody_at: string | null;
+  hidden: boolean;
+  verified: boolean;
+  created_at: string;
+}
+
+export interface AdminCustodyEventRow {
+  seq: number;
+  child_id: string;
+  occurred_at: string;
+  event_date: string | null;
+  placement: string | null;
+  facility_name: string | null;
+  custodian: string | null;
+  status: string | null;
+  note: string | null;
+  recorded_by: string | null;
+  created_at: string;
+}
+
+export async function listUnaccompaniedChildrenAdmin(): Promise<AdminChildRow[]> {
+  const svc = getServerSupabase();
+  const { data } = await svc
+    .from("unaccompanied_children")
+    .select(
+      "id,name,reporter_name,age,gender,description,found_place,found_at,last_seen_at,hospital,last_seen_place,status,direct_contact,info_source,info_source_detail,notes,photo_url,last_custody_at,hidden,verified,created_at",
+    )
+    .order("created_at", { ascending: false })
+    .limit(300);
+  return (data ?? []) as AdminChildRow[];
+}
+
+// Eventos de custodia de varios niños en UNA query (evita N+1). El page los agrupa
+// por child_id. Vienen más recientes primero (igual que el timeline público).
+export async function listChildCustodyEvents(ids: string[]): Promise<AdminCustodyEventRow[]> {
+  if (ids.length === 0) return [];
+  const svc = getServerSupabase();
+  const { data } = await svc
+    .from("child_custody_events")
+    .select("seq,child_id,occurred_at,event_date,placement,facility_name,custodian,status,note,recorded_by,created_at")
+    .in("child_id", ids)
+    .order("seq", { ascending: false });
+  return (data ?? []) as AdminCustodyEventRow[];
+}

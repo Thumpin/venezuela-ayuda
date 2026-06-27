@@ -163,6 +163,12 @@ export default async function AdminPage({
                   Colaboradores
                 </Link>
                 <Link
+                  href="/admin/ninos"
+                  className="rounded-lg border border-[#e6ecf2] px-3 py-2 text-sm font-medium text-[#14212e] transition hover:bg-slate-50"
+                >
+                  Niños
+                </Link>
+                <Link
                   href="/admin/admins"
                   className="rounded-lg border border-[#e6ecf2] px-3 py-2 text-sm font-medium text-[#14212e] transition hover:bg-slate-50"
                 >

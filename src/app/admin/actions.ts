@@ -10,7 +10,7 @@ import { generateApiKey, hashKey, parsePrefix } from "@/lib/apiAuth.mjs";
 import { patchArgs, deleteArgs } from "@/lib/internalWrite.mjs";
 import { buildRow, INGEST_TABLES } from "@/lib/ingest.mjs";
 import { parseDump } from "@/lib/batchIngest.mjs";
-import { VA_PARTNER_ID } from "@/lib/canonical.mjs";
+import { VA_PARTNER_ID, VA_SOURCE, CHILD_STATUS } from "@/lib/canonical.mjs";
 import type { Json } from "@/types/database.types.gen";
 import { logError, logWarn } from "@/lib/log.mjs";
 
@@ -577,5 +577,76 @@ export async function revokePartner(id: string): Promise<Result> {
     return { ok: false, error: "No se pudo revocar." };
   }
   revalidatePath("/admin/colaboradores");
+  return { ok: true };
+}
+
+// --- Niños no acompañados (super-admin) -------------------------------------
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+const trimOrNull = (v: FormDataEntryValue | null, max: number): string | null => {
+  const s = String(v ?? "").trim().slice(0, max);
+  return s.length ? s : null;
+};
+
+// Agrega un evento al historial de paradero/custodia y refresca last_custody_at
+// (y el estado actual del niño, si el evento lo trae). Append-only: solo inserta.
+export async function addChildCustodyEvent(_prev: Result, form: FormData): Promise<Result> {
+  let email: string;
+  try {
+    email = await requireSuperAdmin();
+  } catch {
+    return { ok: false, error: "No autorizado." };
+  }
+
+  const childId = String(form.get("child_id") || "");
+  if (!UUID_RE.test(childId)) return { ok: false, error: "Id inválido." };
+
+  const statusRaw = String(form.get("status") || "");
+  const status = (CHILD_STATUS as string[]).includes(statusRaw) ? statusRaw : null;
+  const eventDateRaw = trimOrNull(form.get("event_date"), 10);
+  const event_date = eventDateRaw && ISO_DATE.test(eventDateRaw) ? eventDateRaw : null;
+  const placement = trimOrNull(form.get("placement"), 200);
+  const facility_name = trimOrNull(form.get("facility_name"), 200);
+  const custodian = trimOrNull(form.get("custodian"), 80);
+  const note = trimOrNull(form.get("note"), 800);
+  if (!placement && !facility_name && !custodian && !note && !status)
+    return { ok: false, error: "Indica al menos un dato del evento." };
+
+  const svc = getServerSupabase();
+  const { error } = await svc.from("child_custody_events").insert({
+    child_id: childId,
+    event_date,
+    placement,
+    facility_name,
+    custodian,
+    status,
+    note,
+    source: VA_SOURCE,
+    recorded_by: email,
+  });
+  if (error) return { ok: false, error: "No se pudo registrar el evento." };
+
+  const patch: Record<string, unknown> = { last_custody_at: new Date().toISOString() };
+  if (status) patch.status = status;
+  await svc.from("unaccompanied_children").update(patch).eq("id", childId);
+
+  revalidatePath("/admin/ninos");
+  revalidatePath(`/nino/${childId}`);
+  return { ok: true };
+}
+
+// Oculta / restaura un registro de niño (moderación).
+export async function setChildHidden(id: string, hidden: boolean): Promise<Result> {
+  try {
+    await requireSuperAdmin();
+  } catch {
+    return { ok: false, error: "No autorizado." };
+  }
+  if (!UUID_RE.test(id)) return { ok: false, error: "Id inválido." };
+  const svc = getServerSupabase();
+  const { error } = await svc.from("unaccompanied_children").update({ hidden }).eq("id", id);
+  if (error) return { ok: false, error: "No se pudo actualizar." };
+  revalidatePath("/admin/ninos");
+  revalidatePath("/ninos");
+  revalidatePath(`/nino/${id}`);
   return { ok: true };
 }

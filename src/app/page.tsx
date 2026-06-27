@@ -79,6 +79,13 @@ export default async function Home() {
             tileBg="#eaf3ec"
           />
           <BigButton
+            href="/ninos"
+            emoji="👶"
+            label={t("actions.childrenLabel")}
+            sublabel={t("actions.childrenSub")}
+            tileBg="#fde9ef"
+          />
+          <BigButton
             href="/puedo-ayudar"
             emoji="🤝"
             label={t("actions.canHelpLabel")}
