@@ -4,7 +4,7 @@ import { useState } from "react";
 import CenterAdminRow from "./CenterAdminRow";
 import DamagedAdminRow from "./DamagedAdminRow";
 import ModerationRow from "./ModerationRow";
-import { updateHospitalizedPatient } from "@/app/admin/actions";
+import { updateHospitalizedPatient, autoMarkAsHospitalized } from "@/app/admin/actions";
 
 interface AdminTabsProps {
   centers: any[];
@@ -13,7 +13,7 @@ interface AdminTabsProps {
   hospitalized: any[];
 }
 
-function HospitalizedAdminRow({ item }: { item: any }) {
+function HospitalizedAdminRow({ item, peopleItems }: { item: any; peopleItems: any[] }) {
   const [isEditing, setIsEditing] = useState(false);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -26,6 +26,48 @@ function HospitalizedAdminRow({ item }: { item: any }) {
   const [status, setStatus] = useState(item.status || "");
   const [notas, setNotas] = useState(item.notas || "");
   const [fuentes, setFuentes] = useState(item.fuentes || "");
+
+  // Match states
+  const [pendingMatch, setPendingMatch] = useState(false);
+  const [matchError, setMatchError] = useState<string | null>(null);
+
+  // Token-based matching
+  const toTokens = (n: string) =>
+    n
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-z0-9 ]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim()
+      .split(" ")
+      .filter((t) => t.length >= 3);
+
+  const hTokens = new Set(toTokens(`${item.nombre || ""} ${item.apellido || ""}`));
+  const matchedPerson = hTokens.size > 0
+    ? peopleItems.find((m) => {
+        if (m.status !== "LOOKING_FOR_SOMEONE") return false;
+        const searchTokens = toTokens(m.label);
+        return searchTokens.length > 0 && searchTokens.every((t) => hTokens.has(t));
+      })
+    : null;
+
+  async function handleAutoMark(checkinId: string) {
+    setPendingMatch(true);
+    setMatchError(null);
+    try {
+      const res = await autoMarkAsHospitalized(checkinId, item.hospital || "Centro de Salud");
+      if (res.ok) {
+        location.reload();
+      } else {
+        setMatchError(res.error ?? "No se pudo actualizar el estado.");
+      }
+    } catch {
+      setMatchError("Error de red o comunicación.");
+    } finally {
+      setPendingMatch(false);
+    }
+  }
 
   async function handleSave() {
     setPending(true);
@@ -182,6 +224,23 @@ function HospitalizedAdminRow({ item }: { item: any }) {
         </div>
       )}
 
+      {matchedPerson && (
+        <div className="mt-2 bg-amber-50 border border-amber-100 rounded-xl p-3 flex flex-wrap items-center justify-between gap-3 text-xs text-amber-800">
+          <div className="min-w-0 flex-1">
+            <span className="font-bold">⚠️ Coincidencia Detectada:</span> Coincide con el reporte de desaparecido <strong className="text-amber-950">"{matchedPerson.label}"</strong>.
+            {matchError && <p className="mt-1 text-red-600 font-semibold">{matchError}</p>}
+          </div>
+          <button
+            type="button"
+            disabled={pendingMatch}
+            onClick={() => handleAutoMark(matchedPerson.id)}
+            className="rounded-lg bg-amber-600 text-white px-3 py-1.5 font-semibold hover:bg-amber-700 transition disabled:opacity-50 shadow-sm shrink-0"
+          >
+            {pendingMatch ? "Marcando..." : "🔄 Marcar como Hospitalizado"}
+          </button>
+        </div>
+      )}
+
       <div className="flex justify-end border-t border-slate-100 pt-2.5 mt-0.5">
         <button
           type="button"
@@ -329,7 +388,7 @@ export default function AdminTabs({ centers, damaged, mod, hospitalized }: Admin
             ) : (
               <div className="space-y-3">
                 {hospitalized.map((h) => (
-                  <HospitalizedAdminRow item={h} key={h.id} />
+                  <HospitalizedAdminRow item={h} key={h.id} peopleItems={peopleItems} />
                 ))}
               </div>
             )}

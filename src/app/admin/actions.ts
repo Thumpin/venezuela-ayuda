@@ -601,3 +601,46 @@ export async function updateCheckinReport(
   return { ok: true };
 }
 
+export async function autoMarkAsHospitalized(
+  checkinId: string,
+  hospitalName: string
+): Promise<Result> {
+  try {
+    await requireAdmin();
+  } catch {
+    return { ok: false, error: "No autorizado." };
+  }
+  if (!UUID_RE.test(checkinId)) return { ok: false, error: "Id inválido." };
+  const svc = getServerSupabase();
+  
+  // 1. Get the current report details to preserve other fields
+  const { data: report, error: getErr } = await svc
+    .from("checkins")
+    .select("name, city, message, phone_private")
+    .eq("id", checkinId)
+    .single();
+    
+  if (getErr || !report) return { ok: false, error: "No se encontró el reporte." };
+  
+  // 2. Format a message indicating it was auto-matched to hospitalized
+  const matchMsg = `[Sistema] Encontrado hospitalizado en: ${hospitalName}`;
+  const newMessage = report.message 
+    ? `${report.message}\n${matchMsg}`
+    : matchMsg;
+
+  // 3. Update the checkin status and note
+  const { error: updateErr } = await svc
+    .from("checkins")
+    .update({
+      status: "HOSPITALIZADO",
+      message: newMessage
+    })
+    .eq("id", checkinId);
+    
+  if (updateErr) return { ok: false, error: "No se pudo actualizar el reporte." };
+  
+  revalidatePath("/admin");
+  revalidatePath("/buscar");
+  return { ok: true };
+}
+
