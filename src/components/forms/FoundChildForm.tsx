@@ -9,7 +9,7 @@ import {
   CHILD_INFO_SOURCES,
   LIMITS,
 } from "@/lib/constants";
-import { Label, TextInput, TextArea, FieldError, Honeypot } from "@/components/Field";
+import { Label, TextInput, TextArea, Select, FieldError, Honeypot } from "@/components/Field";
 import LocationPicker from "@/components/LocationPicker";
 import PhotoInput from "@/components/PhotoInput";
 import SubmitButton from "@/components/SubmitButton";
@@ -73,10 +73,18 @@ export default function FoundChildForm() {
         <FieldError message={state.fieldErrors?.name} />
       </div>
 
-      {/* 3 · Edad */}
+      {/* 3 · Edad — dropdown 0–18 para estandarizar el dato (valor canónico en español). */}
       <div>
         <Label htmlFor="age">{t("age")}</Label>
-        <TextInput id="age" name="age" maxLength={LIMITS.age} placeholder={t("agePlaceholder")} />
+        <Select id="age" name="age" defaultValue="">
+          <option value="">{t("ageUnknown")}</option>
+          <option value="Menos de 1 año">{t("ageUnderOne")}</option>
+          {Array.from({ length: 18 }, (_, i) => i + 1).map((n) => (
+            <option key={n} value={`${n} ${n === 1 ? "año" : "años"}`}>
+              {t("ageYears", { n })}
+            </option>
+          ))}
+        </Select>
       </div>
 
       {/* 4 · Género */}

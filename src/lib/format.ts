@@ -23,3 +23,13 @@ export function fullDate(iso: string): string {
     timeStyle: "short",
   });
 }
+
+// Parse the (free-text or standardized) age field into whole years for
+// filtering. "8 meses" / "menos de 1 año" → 0; "5 años" → 5; unparseable → null.
+export function ageToYears(age: string | null | undefined): number | null {
+  if (!age) return null;
+  if (/mes|month|menos de 1|under 1/i.test(age)) return 0;
+  const m = age.match(/\d+/);
+  if (!m) return null;
+  return parseInt(m[0], 10);
+}
