@@ -6,6 +6,8 @@ import { timeAgo } from "@/lib/format";
 import { CHECKIN_STATUSES, FOUND_BADGE } from "@/lib/constants";
 import type { PublicCheckin } from "@/lib/types";
 
+import { getOptimizedPhotoUrl } from "@/lib/imageOptimizer";
+
 function initials(name: string): string {
   return name
     .trim()
@@ -28,8 +30,10 @@ export default function CheckinCard({ c }: { c: PublicCheckin }) {
         {c.photo_url ? (
           /* eslint-disable-next-line @next/next/no-img-element */
           <img
-            src={c.photo_url}
+            src={getOptimizedPhotoUrl(c.photo_url, 96)}
             alt=""
+            loading="lazy"
+            decoding="async"
             className="h-12 w-12 shrink-0 rounded-full object-cover"
           />
         ) : (

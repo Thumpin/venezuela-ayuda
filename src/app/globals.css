@@ -121,7 +121,8 @@ body {
 
 /* Full-page background image, fixed behind all content. A soft light overlay
    keeps the white cards and text readable. Uses a fixed pseudo-element (smoother
-   on mobile than background-attachment: fixed). */
+   on mobile than background-attachment: fixed).
+   Data saver mode avoids loading the heavy background image entirely. */
 body::before {
   content: "";
   position: fixed;
@@ -135,6 +136,16 @@ body::before {
   background-size: cover;
   background-position: center;
   background-repeat: no-repeat;
+}
+
+@media (prefers-reduced-data: reduce) {
+  body::before {
+    background-image: linear-gradient(
+      135deg,
+      #eef3f8 0%,
+      #f5f8fb 100%
+    ) !important;
+  }
 }
 
 /* Finger-friendly tap targets everywhere. */

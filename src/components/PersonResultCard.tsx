@@ -9,6 +9,7 @@ import { timeAgo } from "@/lib/format";
 import { CHECKIN_STATUSES, FOUND_BADGE } from "@/lib/constants";
 import type { MergedPerson } from "@/lib/people";
 import { updateCheckinStatus } from "@/app/actions";
+import { getOptimizedPhotoUrl } from "@/lib/imageOptimizer";
 
 function initials(name: string): string {
   return name
@@ -104,8 +105,10 @@ export default function PersonResultCard({ p }: { p: MergedPerson }) {
           {p.photoUrl ? (
             /* eslint-disable-next-line @next/next/no-img-element */
             <img
-              src={p.photoUrl}
+              src={getOptimizedPhotoUrl(p.photoUrl, 128)}
               alt={p.name}
+              loading="lazy"
+              decoding="async"
               className="h-16 w-16 shrink-0 rounded-xl object-cover border border-slate-100 shadow-sm cursor-pointer hover:opacity-90 transition"
               onClick={() => setShowModal(true)}
             />
@@ -216,8 +219,10 @@ export default function PersonResultCard({ p }: { p: MergedPerson }) {
               {p.photoUrl ? (
                 /* eslint-disable-next-line @next/next/no-img-element */
                 <img
-                  src={p.photoUrl}
+                  src={getOptimizedPhotoUrl(p.photoUrl, 128)}
                   alt={p.name}
+                  loading="lazy"
+                  decoding="async"
                   className="h-16 w-16 rounded-xl object-cover border border-slate-100 shadow-sm"
                 />
               ) : (
@@ -240,8 +245,10 @@ export default function PersonResultCard({ p }: { p: MergedPerson }) {
             {p.photoUrl && (
               <div className="rounded-xl overflow-hidden border border-slate-100 bg-slate-50 flex justify-center max-h-[300px]">
                 <img
-                  src={p.photoUrl}
+                  src={getOptimizedPhotoUrl(p.photoUrl, 600)}
                   alt={p.name}
+                  loading="lazy"
+                  decoding="async"
                   className="object-contain max-h-[300px]"
                 />
               </div>

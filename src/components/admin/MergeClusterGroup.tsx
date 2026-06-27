@@ -5,6 +5,7 @@ import { decideMerge } from "@/app/admin/actions";
 import { timeAgo } from "@/lib/format";
 import type { MergeClusterGroupData } from "@/lib/mergeClusters";
 import type { MergeSide } from "@/lib/admin";
+import { getOptimizedPhotoUrl } from "@/lib/imageOptimizer";
 
 const TIER_LABEL: Record<MergeClusterGroupData["tier"], { text: string; cls: string }> = {
   HARD: { text: "Casi seguro", cls: "bg-emerald-100 text-emerald-700" },
@@ -222,7 +223,13 @@ export default function MergeClusterGroup({
                     title="Ampliar foto"
                   >
                     {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={m.photo_url!} alt={m.name} className="h-32 w-full object-cover" />
+                    <img
+                      src={getOptimizedPhotoUrl(m.photo_url, 300)}
+                      alt={m.name}
+                      loading="lazy"
+                      decoding="async"
+                      className="h-32 w-full object-cover"
+                    />
                     <div className="absolute inset-0 bg-black/0 transition group-hover:bg-black/10" />
                     <span className="absolute bottom-1 right-1 rounded bg-black/75 px-1.5 py-0.5 text-[9px] font-semibold text-white backdrop-blur-sm">
                       🔍 Ampliar
