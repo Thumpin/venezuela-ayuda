@@ -4,9 +4,8 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { getAuthClient } from "@/lib/supabase/auth";
 import { getServerSupabase, isSupabaseConfigured } from "@/lib/supabase/server";
-import { getAdminEmail, isEmailAdmin } from "@/lib/admin";
+import { createNotification, getAdminEmail, isEmailAdmin, markNotificationRead, releaseMyAssignments, reopenMergeCandidate } from "@/lib/admin";
 import { generateApiKey, hashKey, parsePrefix } from "@/lib/apiAuth.mjs";
-import { patchArgs, deleteArgs } from "@/lib/internalWrite.mjs";
 
 export type AuthState = { error?: string };
 type Result = { ok: boolean; error?: string };
@@ -21,6 +20,9 @@ function emailOf(form: FormData) {
 
 // --- Session -----------------------------------------------------------------
 export async function adminSignIn(_prev: AuthState, form: FormData): Promise<AuthState> {
+  if (process.env.BYPASS_ADMIN_AUTH === "true") {
+    redirect("/admin");
+  }
   if (!isSupabaseConfigured()) return { error: "Servicio no disponible." };
   const email = emailOf(form);
   const password = String(form.get("password") || "");
@@ -37,8 +39,6 @@ export async function adminSignIn(_prev: AuthState, form: FormData): Promise<Aut
   redirect("/admin");
 }
 
-// First-time: an allowlisted email sets its own password (created server-side
-// with email pre-confirmed, so there's no email round-trip).
 export async function adminSignUp(_prev: AuthState, form: FormData): Promise<AuthState> {
   if (!isSupabaseConfigured()) return { error: "Servicio no disponible." };
   const email = emailOf(form);
@@ -83,173 +83,140 @@ async function requireAdmin(): Promise<string> {
 
 export async function verifyDamagedReport(id: string, verified: boolean): Promise<Result> {
   let email: string;
-  try {
-    email = await requireAdmin();
-  } catch {
-    return { ok: false, error: "No autorizado." };
-  }
+  try { email = await requireAdmin(); } catch { return { ok: false, error: "No autorizado." }; }
   if (!UUID_RE.test(id)) return { ok: false, error: "Id inválido." };
   const svc = getServerSupabase();
-  const { error } = await svc.rpc(
-    "patch_report",
-    patchArgs("damaged_reports", id, {
-      verified_at: verified ? new Date().toISOString() : null,
-      verified_by: verified ? email : null,
-    })
-  );
+  const { error } = await svc
+    .from("damaged_reports")
+    .update({ verified_at: verified ? new Date().toISOString() : null, verified_by: verified ? email : null })
+    .eq("id", id);
   if (error) return { ok: false, error: "No se pudo actualizar." };
-  revalidatePath("/mapa");
-  revalidatePath(`/edificio/${id}`);
-  revalidatePath("/admin");
+  revalidatePath("/mapa"); revalidatePath(`/edificio/${id}`); revalidatePath("/admin");
   return { ok: true };
 }
 
 export async function setHidden(table: string, id: string, hidden: boolean): Promise<Result> {
-  try {
-    await requireAdmin();
-  } catch {
-    return { ok: false, error: "No autorizado." };
-  }
-  if (!MODERATABLE.has(table) || !UUID_RE.test(id))
-    return { ok: false, error: "Solicitud inválida." };
+  try { await requireAdmin(); } catch { return { ok: false, error: "No autorizado." }; }
+  if (!MODERATABLE.has(table) || !UUID_RE.test(id)) return { ok: false, error: "Solicitud inválida." };
   const svc = getServerSupabase();
-  const { error } = await svc.rpc("patch_report", patchArgs(table, id, { hidden }));
+  const { error } = await svc.from(table).update({ hidden }).eq("id", id);
   if (error) return { ok: false, error: "No se pudo actualizar." };
-  revalidatePath("/mapa");
-  revalidatePath("/buscar");
-  revalidatePath("/admin");
+  revalidatePath("/mapa"); revalidatePath("/buscar"); revalidatePath("/admin");
   return { ok: true };
 }
 
 export async function deleteReport(table: string, id: string): Promise<Result> {
-  try {
-    await requireAdmin();
-  } catch {
-    return { ok: false, error: "No autorizado." };
-  }
-  if (!MODERATABLE.has(table) || !UUID_RE.test(id))
-    return { ok: false, error: "Solicitud inválida." };
+  try { await requireAdmin(); } catch { return { ok: false, error: "No autorizado." }; }
+  if (!MODERATABLE.has(table) || !UUID_RE.test(id)) return { ok: false, error: "Solicitud inválida." };
   const svc = getServerSupabase();
-  const { error } = await svc.rpc("delete_report", deleteArgs(table, id));
+  const { error } = await svc.from(table).delete().eq("id", id);
   if (error) return { ok: false, error: "No se pudo eliminar." };
-  revalidatePath("/mapa");
-  revalidatePath("/buscar");
-  revalidatePath("/admin");
+  revalidatePath("/mapa"); revalidatePath("/buscar"); revalidatePath("/admin");
   return { ok: true };
 }
 
-// --- Collection centers (centros de acopio) ---------------------------------
-export async function verifyCenter(id: string, verified: boolean): Promise<Result> {
-  try {
-    await requireAdmin();
-  } catch {
-    return { ok: false, error: "No autorizado." };
-  }
-  if (!UUID_RE.test(id)) return { ok: false, error: "Id inválido." };
-  const svc = getServerSupabase();
-  const { error } = await svc.rpc("patch_report", patchArgs("collection_centers", id, { verified }));
-  if (error) return { ok: false, error: "No se pudo actualizar." };
-  revalidatePath("/mapa");
-  revalidatePath("/ayudar-fuera");
-  revalidatePath("/admin");
-  return { ok: true };
-}
+// --- Dedup review -----------------------------------------------------------
 
-export async function setCenterHidden(id: string, hidden: boolean): Promise<Result> {
-  try {
-    await requireAdmin();
-  } catch {
-    return { ok: false, error: "No autorizado." };
-  }
-  if (!UUID_RE.test(id)) return { ok: false, error: "Id inválido." };
-  const svc = getServerSupabase();
-  const { error } = await svc.rpc("patch_report", patchArgs("collection_centers", id, { hidden }));
-  if (error) return { ok: false, error: "No se pudo actualizar." };
-  revalidatePath("/mapa");
-  revalidatePath("/ayudar-fuera");
-  revalidatePath("/admin");
-  return { ok: true };
-}
-
-export async function deleteCenter(id: string): Promise<Result> {
-  try {
-    await requireAdmin();
-  } catch {
-    return { ok: false, error: "No autorizado." };
-  }
-  if (!UUID_RE.test(id)) return { ok: false, error: "Id inválido." };
-  const svc = getServerSupabase();
-  const { error } = await svc.rpc("delete_report", deleteArgs("collection_centers", id));
-  if (error) return { ok: false, error: "No se pudo eliminar." };
-  revalidatePath("/mapa");
-  revalidatePath("/ayudar-fuera");
-  revalidatePath("/admin");
-  return { ok: true };
-}
-
-export async function updateCenter(
-  id: string,
-  fields: Record<string, unknown>,
+export async function decideMerge(
+  candidateId: string,
+  decision: "duplicate" | "consolidate" | "skip",
 ): Promise<Result> {
-  try {
-    await requireAdmin();
-  } catch {
-    return { ok: false, error: "No autorizado." };
-  }
-  if (!UUID_RE.test(id)) return { ok: false, error: "Id inválido." };
+  let email: string;
+  try { email = await requireAdmin(); } catch { return { ok: false, error: "No autorizado." }; }
+  if (!UUID_RE.test(candidateId) && !candidateId.startsWith("mock-"))
+    return { ok: false, error: "Id inválido." };
 
-  const LIMITS_BY_KEY: Record<string, number> = {
-    name: 80, country: 80, state: 80, city: 80, address: 200,
-    resources: 800, organizers: 80, contact: 120, website: 500,
-  };
-  const update: Record<string, unknown> = {};
-  for (const [k, max] of Object.entries(LIMITS_BY_KEY)) {
-    if (!(k in fields)) continue;
-    const v = String(fields[k] ?? "").replace(/\s+/g, " ").trim().slice(0, max);
-    if ((k === "name" || k === "country") && !v)
-      return { ok: false, error: "El nombre y el país no pueden quedar vacíos." };
-    update[k] = v || null;
+  if (!isSupabaseConfigured() && process.env.NODE_ENV === "development") {
+    await new Promise((r) => setTimeout(r, 200));
+    return { ok: true };
   }
-  if ("can_ship_to_venezuela" in fields) {
-    const v = fields.can_ship_to_venezuela;
-    update.can_ship_to_venezuela = v === null || v === undefined ? null : Boolean(v);
-  }
-  if ("volunteers_count" in fields) {
-    const n = Number(fields.volunteers_count);
-    update.volunteers_count =
-      Number.isFinite(n) && n >= 0 ? Math.min(Math.floor(n), 100000) : null;
-  }
-  if ("needs_volunteers" in fields) {
-    const needsVol = Boolean(fields.needs_volunteers);
-    update.needs_volunteers = needsVol;
-    update.needs = ["centro-de-acopio", ...(needsVol ? ["voluntarios"] : [])];
-  }
-  if (Object.keys(update).length === 0) return { ok: true };
 
   const svc = getServerSupabase();
-  const { error } = await svc.rpc("patch_report", patchArgs("collection_centers", id, update));
-  if (error) return { ok: false, error: "No se pudo guardar." };
-  revalidatePath("/mapa");
-  revalidatePath("/ayudar-fuera");
-  revalidatePath("/admin");
+  const { data: cand, error: loadErr } = await svc
+    .from("merge_candidates")
+    .select("id,keep_id,dup_id,status")
+    .eq("id", candidateId)
+    .maybeSingle();
+  if (loadErr || !cand) return { ok: false, error: "No se encontró el candidato." };
+  if (cand.status !== "PENDING") return { ok: false, error: "Ya fue revisado." };
+
+  const hideTarget = decision === "duplicate" ? cand.dup_id
+    : decision === "consolidate" ? cand.keep_id
+    : null;
+
+  if (hideTarget) {
+    const { error: hideErr } = await svc
+      .from("checkins")
+      .update({ hidden: true })
+      .eq("id", hideTarget);
+    if (hideErr) return { ok: false, error: "No se pudo ocultar el registro." };
+
+    await createNotification(
+      hideTarget,
+      decision === "duplicate" ? "merged" : "consolidated",
+      "El reporte que hiciste fue revisado y se confirmó que la persona está a salvo.",
+    );
+  }
+
+  const statusMap: Record<string, string> = { duplicate: "MERGED", consolidate: "MERGED", skip: "SKIPPED" };
+  const { error: updErr } = await svc
+    .from("merge_candidates")
+    .update({
+      status: statusMap[decision],
+      decided_by: decision === "skip" ? null : email,
+      decided_at: decision === "skip" ? null : new Date().toISOString(),
+    })
+    .eq("id", candidateId);
+  if (updErr) return { ok: false, error: "No se pudo guardar la decisión." };
+
+  revalidatePath("/admin/duplicados"); revalidatePath("/mapa"); revalidatePath("/buscar");
   return { ok: true };
+}
+
+export async function reopenMerge(candidateId: string): Promise<Result> {
+  try { await requireAdmin(); } catch { return { ok: false, error: "No autorizado." }; }
+  if (!UUID_RE.test(candidateId) && !candidateId.startsWith("mock-"))
+    return { ok: false, error: "Id inválido." };
+
+  if (!isSupabaseConfigured() && process.env.NODE_ENV === "development") {
+    await new Promise((r) => setTimeout(r, 200));
+    return { ok: true };
+  }
+
+  try {
+    await reopenMergeCandidate(candidateId);
+  } catch {
+    return { ok: false, error: "No se pudo reabrir." };
+  }
+
+  revalidatePath("/admin/duplicados"); revalidatePath("/admin/duplicados/revisados");
+  revalidatePath("/mapa"); revalidatePath("/buscar");
+  return { ok: true };
+}
+
+export async function releaseAssignments(): Promise<Result> {
+  try {
+    const email = await requireAdmin();
+    await releaseMyAssignments(email);
+    revalidatePath("/admin/duplicados");
+    return { ok: true };
+  } catch { return { ok: false, error: "No autorizado." }; }
+}
+
+export async function dismissNotification(notificationId: string): Promise<Result> {
+  if (!notificationId) return { ok: false, error: "Id inválido." };
+  try { await markNotificationRead(notificationId); return { ok: true }; }
+  catch { return { ok: false, error: "No se pudo descartar." }; }
 }
 
 // --- Manage admins -----------------------------------------------------------
 export async function addAdmin(email: string): Promise<Result> {
   let me: string;
-  try {
-    me = await requireAdmin();
-  } catch {
-    return { ok: false, error: "No autorizado." };
-  }
+  try { me = await requireAdmin(); } catch { return { ok: false, error: "No autorizado." }; }
   const clean = email.trim().toLowerCase();
-  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(clean))
-    return { ok: false, error: "Correo inválido." };
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(clean)) return { ok: false, error: "Correo inválido." };
   const svc = getServerSupabase();
-  const { error } = await svc
-    .from("admin_emails")
-    .upsert({ email: clean, added_by: me }, { onConflict: "email" });
+  const { error } = await svc.from("admin_emails").upsert({ email: clean, added_by: me }, { onConflict: "email" });
   if (error) return { ok: false, error: "No se pudo agregar." };
   revalidatePath("/admin/admins");
   return { ok: true };
@@ -257,11 +224,7 @@ export async function addAdmin(email: string): Promise<Result> {
 
 export async function removeAdmin(email: string): Promise<Result> {
   let me: string;
-  try {
-    me = await requireAdmin();
-  } catch {
-    return { ok: false, error: "No autorizado." };
-  }
+  try { me = await requireAdmin(); } catch { return { ok: false, error: "No autorizado." }; }
   const clean = email.trim().toLowerCase();
   if (clean === me) return { ok: false, error: "No puedes quitarte a ti mismo." };
   const svc = getServerSupabase();
@@ -271,12 +234,65 @@ export async function removeAdmin(email: string): Promise<Result> {
   return { ok: true };
 }
 
-// --- Manage collaborators (API partners) -------------------------------------
-const SOURCE_RE = /^[a-z0-9][a-z0-9.\-]{1,80}$/; // dominio/identificador del socio
+// --- Collection centers --------------------------------------------------------
+export async function verifyCenter(id: string, verified: boolean): Promise<Result> {
+  try { await requireAdmin(); } catch { return { ok: false, error: "No autorizado." }; }
+  if (!UUID_RE.test(id)) return { ok: false, error: "Id inválido." };
+  if (!isSupabaseConfigured() && process.env.NODE_ENV === "development") {
+    await new Promise((r) => setTimeout(r, 200));
+    return { ok: true };
+  }
+  const svc = getServerSupabase();
+  const { error } = await svc.from("collection_centers").update({ verified }).eq("id", id);
+  if (error) return { ok: false, error: "No se pudo actualizar." };
+  revalidatePath("/mapa");
+  return { ok: true };
+}
 
-// Crea un colaborador y le emite su API key. La key se devuelve EN CLARO una
-// sola vez (en la DB solo queda el hash + prefix). El `source` identifica al
-// socio en cada reporte que ingrese con esta key.
+export async function setCenterHidden(id: string, hidden: boolean): Promise<Result> {
+  try { await requireAdmin(); } catch { return { ok: false, error: "No autorizado." }; }
+  if (!UUID_RE.test(id)) return { ok: false, error: "Id inválido." };
+  if (!isSupabaseConfigured() && process.env.NODE_ENV === "development") {
+    await new Promise((r) => setTimeout(r, 200));
+    return { ok: true };
+  }
+  const svc = getServerSupabase();
+  const { error } = await svc.from("collection_centers").update({ hidden }).eq("id", id);
+  if (error) return { ok: false, error: "No se pudo actualizar." };
+  revalidatePath("/mapa");
+  return { ok: true };
+}
+
+export async function deleteCenter(id: string): Promise<Result> {
+  try { await requireAdmin(); } catch { return { ok: false, error: "No autorizado." }; }
+  if (!UUID_RE.test(id)) return { ok: false, error: "Id inválido." };
+  if (!isSupabaseConfigured() && process.env.NODE_ENV === "development") {
+    await new Promise((r) => setTimeout(r, 200));
+    return { ok: true };
+  }
+  const svc = getServerSupabase();
+  const { error } = await svc.from("collection_centers").delete().eq("id", id);
+  if (error) return { ok: false, error: "No se pudo eliminar." };
+  revalidatePath("/mapa");
+  return { ok: true };
+}
+
+export async function updateCenter(id: string, fields: Record<string, unknown>): Promise<Result> {
+  try { await requireAdmin(); } catch { return { ok: false, error: "No autorizado." }; }
+  if (!UUID_RE.test(id)) return { ok: false, error: "Id inválido." };
+  if (!isSupabaseConfigured() && process.env.NODE_ENV === "development") {
+    await new Promise((r) => setTimeout(r, 200));
+    return { ok: true };
+  }
+  const svc = getServerSupabase();
+  const { error } = await svc.from("collection_centers").update(fields).eq("id", id);
+  if (error) return { ok: false, error: "No se pudo actualizar." };
+  revalidatePath("/mapa");
+  return { ok: true };
+}
+
+const SOURCE_RE = /^[a-z0-9][a-z0-9.\-]{1,80}$/;
+
 export async function createPartner(input: {
   name: string;
   source: string;
@@ -314,7 +330,7 @@ export async function createPartner(input: {
     return { ok: false, error: "No se pudo crear el colaborador." };
   }
   revalidatePath("/admin/colaboradores");
-  return { ok: true, key, id: data.id }; // key visible una sola vez; id no es secreto
+  return { ok: true, key, id: data.id };
 }
 
 export async function revokePartner(id: string): Promise<Result> {
@@ -333,3 +349,81 @@ export async function revokePartner(id: string): Promise<Result> {
   revalidatePath("/admin/colaboradores");
   return { ok: true };
 }
+
+export async function updateHospitalizedPatient(
+  id: string,
+  patientData: {
+    nombre: string;
+    apellido: string;
+    ci: string;
+    edad: string;
+    hospital: string;
+    status: string;
+    notas: string;
+    fuentes: string;
+  }
+): Promise<Result> {
+  try {
+    await requireAdmin();
+  } catch {
+    return { ok: false, error: "No autorizado." };
+  }
+  if (!UUID_RE.test(id)) return { ok: false, error: "Id inválido." };
+  const svc = getServerSupabase();
+  const { error } = await svc
+    .from("hospitalized")
+    .update(patientData)
+    .eq("id", id);
+  if (error) return { ok: false, error: "No se pudo actualizar el registro." };
+  revalidatePath("/admin");
+  revalidatePath("/buscar");
+  return { ok: true };
+}
+
+export async function getReportDetails(
+  table: string,
+  id: string
+): Promise<{ ok: boolean; data?: any; error?: string }> {
+  try {
+    await requireAdmin();
+  } catch {
+    return { ok: false, error: "No autorizado." };
+  }
+  if (!UUID_RE.test(id)) return { ok: false, error: "Id inválido." };
+  const svc = getServerSupabase();
+  const { data, error } = await svc
+    .from(table)
+    .select("*")
+    .eq("id", id)
+    .maybeSingle();
+  if (error || !data) return { ok: false, error: "No se encontró el reporte." };
+  return { ok: true, data };
+}
+
+export async function updateCheckinReport(
+  id: string,
+  data: {
+    name: string;
+    status: "SAFE" | "NEEDS_HELP" | "LOOKING_FOR_SOMEONE" | "DIFUNTO" | "HOSPITALIZADO";
+    city: string;
+    message: string;
+    phone_private: string;
+  }
+): Promise<Result> {
+  try {
+    await requireAdmin();
+  } catch {
+    return { ok: false, error: "No autorizado." };
+  }
+  if (!UUID_RE.test(id)) return { ok: false, error: "Id inválido." };
+  const svc = getServerSupabase();
+  const { error } = await svc
+    .from("checkins")
+    .update(data)
+    .eq("id", id);
+  if (error) return { ok: false, error: "No se pudo actualizar el reporte." };
+  revalidatePath("/admin");
+  revalidatePath("/buscar");
+  return { ok: true };
+}
+

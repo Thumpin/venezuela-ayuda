@@ -25,24 +25,50 @@ export const revalidate = 30;
 export default async function Page({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string; ciudad?: string }>;
+  searchParams: Promise<{ q?: string; ciudad?: string; tipo?: string }>;
 }) {
   const sp = await searchParams;
   const qStr = sp.q?.trim() || "";
   const city = sp.ciudad?.trim() || "";
-  const hasQuery = qStr.length >= 2 || city.length >= 2;
+  const tipo = sp.tipo?.trim() || ""; // "desaparecidos" | "hospitalizados"
+  const hasQuery = qStr.length >= 2 || city.length >= 2 || tipo;
 
   const [checkins, places, registry, desaparecidos] = hasQuery
     ? await Promise.all([
-        searchCheckins({ q: qStr, city }),
-        searchHelpRequests({ q: qStr, city }),
-        searchHospitalRegistry({ q: qStr, city }),
-        searchMissingPersonsApi({ q: qStr, city }),
+        tipo === "hospitalizados"
+          ? []
+          : searchCheckins({
+              q: qStr,
+              city,
+              status: tipo === "desaparecidos" ? "LOOKING_FOR_SOMEONE" : undefined,
+              limit: tipo ? 150 : 60,
+            }),
+        tipo ? [] : searchHelpRequests({ q: qStr, city }),
+        searchHospitalRegistry({
+          q: qStr,
+          city,
+          limit: tipo === "desaparecidos" ? 6000 : (tipo ? 150 : 40),
+          allowEmpty: Boolean(tipo),
+        }),
+        tipo === "hospitalizados"
+          ? []
+          : searchMissingPersonsApi({ q: qStr, city }),
       ])
     : [[], [], [], []];
 
   // Collapse the same person found across sources into one merged result.
-  const people = mergePeople(checkins, registry, desaparecidos);
+  let people = mergePeople(checkins, registry, desaparecidos);
+  
+  if (tipo === "desaparecidos") {
+    people = people.filter((p) =>
+      p.sources.some((s) => s.label !== "Cruz Roja (registro de hospitales)")
+    );
+  } else if (tipo === "hospitalizados") {
+    people = people.filter((p) =>
+      p.sources.some((s) => s.label === "Cruz Roja (registro de hospitales)")
+    );
+  }
+
   const total = people.length + places.length;
 
   const t = await getTranslations("search");
@@ -51,11 +77,24 @@ export default async function Page({
 
   return (
     <PageShell
-      emoji="🔎"
-      title={t("title")}
-      intro={t("intro")}
+      emoji={tipo === "desaparecidos" ? "🔎" : tipo === "hospitalizados" ? "🏥" : "🔎"}
+      title={
+        tipo === "desaparecidos"
+          ? "Lista de Desaparecidos"
+          : tipo === "hospitalizados"
+          ? "Lista de Hospitalizados"
+          : t("title")
+      }
+      intro={
+        tipo === "desaparecidos"
+          ? "Personas reportadas como desaparecidas o buscadas por sus familiares."
+          : tipo === "hospitalizados"
+          ? "Registro de personas en centros hospitalarios y de salud."
+          : t("intro")
+      }
     >
       <form method="get" className="space-y-3" role="search">
+        {tipo && <input type="hidden" name="tipo" value={tipo} />}
         <div className="grid gap-3 sm:grid-cols-2">
           <input
             name="q"

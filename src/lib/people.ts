@@ -31,6 +31,7 @@ export interface MergedPerson {
   status: CheckinStatus; // derived display status when not found
   description: string | null; // quoted body (richest available)
   sources: PersonSourceLink[]; // primary = sources[0]; rest counted as "+N más"
+  hospitalName?: string | null; // name of hospital if registered
 }
 
 // Internal normalized hit before grouping.
@@ -44,13 +45,16 @@ interface Hit {
   description: string | null;
   updated: string | null;
   source: PersonSourceLink;
+  hospitalName?: string | null;
 }
 
 // Priority for picking the single display status (when nobody is found).
 const STATUS_RANK: Record<CheckinStatus, number> = {
-  NEEDS_HELP: 3,
-  LOOKING_FOR_SOMEONE: 2,
+  NEEDS_HELP: 4,
+  LOOKING_FOR_SOMEONE: 3,
+  HOSPITALIZADO: 2,
   SAFE: 1,
+  DIFUNTO: 0,
 };
 
 // Count of "significant" name tokens — used to pick the most complete name.
@@ -75,15 +79,23 @@ function checkinHit(c: PublicCheckin): Hit {
 }
 
 function hospitalHit(m: HospitalRegistryMatch): Hit {
+  // Map hospital registry statuses to app statuses where possible.
+  const rawStatus = (m.status ?? "").toUpperCase();
+  const appStatus: CheckinStatus =
+    rawStatus === "FALLECIDO" || rawStatus === "DIFUNTO"
+      ? "DIFUNTO"
+      : rawStatus === "ALTA" || rawStatus === "ENCONTRADO"
+      ? "SAFE"
+      : "HOSPITALIZADO";
   return {
     kind: "hospital",
     name: m.name,
     photoUrl: null,
     location: m.location,
-    found: true, // listed in a hospital → located
-    status: "SAFE",
+    found: appStatus === "SAFE" || appStatus === "DIFUNTO", // not actively missing
+    status: appStatus,
     description:
-      [m.hospital ? `En la lista de ${m.hospital}` : null, m.status]
+      [m.hospital ? `Hospitalizado/a en ${m.hospital}` : null, m.status]
         .filter(Boolean)
         .join(" · ") || null,
     updated: m.updated,
@@ -92,6 +104,7 @@ function hospitalHit(m: HospitalRegistryMatch): Hit {
       href: null,
       external: false,
     },
+    hospitalName: m.hospital,
   };
 }
 
@@ -154,7 +167,9 @@ export function mergePeople(
 
     const photoUrl = bucket.find((h) => h.photoUrl)?.photoUrl ?? null;
     const updated = bucket.find((h) => h.updated)?.updated ?? null;
-    const found = bucket.some((h) => h.found);
+    const hospitalHit = bucket.find((h) => h.hospitalName);
+    const hospitalName = hospitalHit ? hospitalHit.hospitalName : null;
+    const found = bucket.some((h) => h.found) || Boolean(hospitalName);
 
     const status = bucket
       .map((h) => h.status)
@@ -184,6 +199,7 @@ export function mergePeople(
       status,
       description: pickDescription(bucket),
       sources,
+      hospitalName,
     };
   });
 

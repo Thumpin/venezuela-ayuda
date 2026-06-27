@@ -16,6 +16,9 @@ import { HELP_CATEGORIES, OFFER_CATEGORIES, DAMAGE_SEVERITY } from "@/lib/consta
 import type { HelpCity, HelpNeed } from "@/lib/helpAbroad";
 import { formatItems } from "@/lib/validation";
 import { parseCsv, norm } from "@/lib/csv";
+import fs from "node:fs";
+import path from "node:path";
+
 
 const VENEZUELA = "Venezuela";
 
@@ -84,6 +87,7 @@ export async function searchCheckins(params: {
   q?: string;
   city?: string;
   limit?: number;
+  status?: string;
 }): Promise<PublicCheckin[]> {
   if (!isSupabaseConfigured()) return [];
   const supabase = getServerSupabase();
@@ -92,6 +96,8 @@ export async function searchCheckins(params: {
     .select("*")
     .order("created_at", { ascending: false })
     .limit(params.limit ?? 60);
+
+  if (params.status) query = query.eq("status", params.status);
 
   // ilike with escaped wildcards to avoid pattern-injection.
   if (params.q)
@@ -136,74 +142,56 @@ export async function searchHelpRequests(params: {
 // alongside the app's own data so a family can find a relative who only appears
 // in the official roster. The gviz CSV endpoint works without publishing the
 // sheet; on any failure we return [] so the rest of the search page is unaffected.
-const HOSPITAL_REGISTRY_CSV_URL =
-  "https://docs.google.com/spreadsheets/d/1fRQ3zEkIFMV2SYEjQiCuwewKAJDSixRepzBUf3ZFqf4/gviz/tq?tqx=out:csv&gid=963077964";
-
 export async function searchHospitalRegistry(params: {
   q?: string;
   city?: string;
   limit?: number;
+  allowEmpty?: boolean;
 }): Promise<HospitalRegistryMatch[]> {
   const nameTokens = norm(params.q ?? "")
     .split(/\s+/)
     .filter(Boolean);
   const cityQuery = norm(params.city ?? "");
-  if (nameTokens.length === 0 && cityQuery.length === 0) return [];
+  if (!params.allowEmpty && nameTokens.length === 0 && cityQuery.length === 0) return [];
 
-  let text: string;
-  try {
-    const res = await fetch(HOSPITAL_REGISTRY_CSV_URL, {
-      headers: { "User-Agent": "Mozilla/5.0" },
-      next: { revalidate: 120 }, // near-realtime, but don't hammer Google
-    });
-    if (!res.ok) return [];
-    text = await res.text();
-  } catch {
-    return [];
-  }
+  const supabase = getServerSupabase();
+  const { data, error } = await supabase
+    .from("public_hospitalized")
+    .select("*");
 
-  const rows = parseCsv(text);
-  if (rows.length < 2) return [];
-
-  // Resolve columns by normalized header so reordering the sheet can't break us.
-  const header = rows[0].map(norm);
-  const col = (name: string) => header.findIndex((h) => h === name);
-  const iId = col("id");
-  const iHospital = col("hospital");
-  const iName = col("nombre_completo");
-  const iSearch = col("nombre_busqueda");
-  const iAge = col("edad");
-  const iAddr = col("direccion");
-  const iStatus = col("estado");
-  const iUpdated = col("fecha_actualizacion");
-  const iSource = col("fuente");
-
-  const get = (row: string[], i: number) =>
-    i >= 0 && i < row.length ? row[i].trim() : "";
+  if (error || !data) return [];
 
   const limit = params.limit ?? 40;
   const out: HospitalRegistryMatch[] = [];
 
-  for (let r = 1; r < rows.length && out.length < limit; r++) {
-    const row = rows[r];
-    const name = get(row, iName);
-    if (!name) continue;
+  for (let r = 0; r < data.length && out.length < limit; r++) {
+    const row = data[r];
+    const nombre = row.nombre || "";
+    const apellido = row.apellido || "";
+    const fullName = [nombre, apellido].filter(Boolean).join(" ");
+    const ci = row.ci || "";
+    const notas = row.notas || "";
 
     if (nameTokens.length) {
-      const haystack = get(row, iSearch) || norm(name);
+      // Search name, CI and notes
+      const haystack = norm(`${fullName} ${ci} ${notas}`);
       if (!nameTokens.every((t) => haystack.includes(t))) continue;
     }
-    if (cityQuery && !norm(get(row, iAddr)).includes(cityQuery)) continue;
+    if (cityQuery) {
+      // Search city query inside notes/hospital
+      const haystack = norm(`${notas} ${row.hospital || ""}`);
+      if (!haystack.includes(cityQuery)) continue;
+    }
 
     out.push({
-      id: get(row, iId) || `reg-${r}`,
-      name,
-      hospital: get(row, iHospital),
-      location: get(row, iAddr) || null,
-      age: get(row, iAge) || null,
-      status: get(row, iStatus) || null,
-      source: get(row, iSource) || null,
-      updated: get(row, iUpdated) || null,
+      id: ci ? `ci-${ci}` : `reg-${r}`,
+      name: fullName,
+      hospital: row.hospital || "",
+      location: notas || null,
+      age: row.edad || null,
+      status: row.status || null,
+      source: row.fuentes || null,
+      updated: null,
     });
   }
 

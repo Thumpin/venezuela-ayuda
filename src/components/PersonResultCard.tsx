@@ -1,3 +1,6 @@
+"use client";
+
+import { useState } from "react";
 import Link from "next/link";
 import { useTranslations } from "next-intl";
 import StatusBadge from "@/components/StatusBadge";
@@ -15,10 +18,8 @@ function initials(name: string): string {
     .join("");
 }
 
-// A person, possibly merged from several sources. Mirrors CheckinCard's layout:
-// avatar · name · location/updated line · status badge · quoted description ·
-// a small "Fuente:" link at the bottom (with "+N fuentes más" when merged).
 export default function PersonResultCard({ p }: { p: MergedPerson }) {
+  const [showModal, setShowModal] = useState(false);
   const t = useTranslations("search");
   const tD = useTranslations("domain");
   const s = CHECKIN_STATUSES[p.status];
@@ -26,64 +27,197 @@ export default function PersonResultCard({ p }: { p: MergedPerson }) {
   const extra = p.sources.length - 1;
 
   return (
-    <div className="min-w-0 rounded-2xl border border-[#e6ecf2] bg-white p-4">
-      <div className="flex items-center gap-3.5">
-        {p.photoUrl ? (
-          /* eslint-disable-next-line @next/next/no-img-element */
-          <img
-            src={p.photoUrl}
-            alt=""
-            className="h-12 w-12 shrink-0 rounded-full object-cover"
-          />
-        ) : (
-          <span
-            aria-hidden
-            className="grid h-12 w-12 shrink-0 place-items-center rounded-full text-base font-semibold"
-            style={{ backgroundColor: s.tintBg, color: s.tintText }}
-          >
-            {initials(p.name)}
-          </span>
-        )}
-        <div className="min-w-0 flex-1">
-          <h3 className="truncate text-base font-semibold text-[#14212e]">{p.name}</h3>
-          <p className="mt-0.5 text-xs text-[#8190a0]">
-            {p.locations.length > 0 && `🏢 ${p.locations.join(" · ")} · `}
-            {p.updated ? t("card.metaUpdated", { time: timeAgo(p.updated) }) : t("card.noDate")}
-          </p>
+    <>
+      <div className="min-w-0 rounded-2xl border border-[#e6ecf2] bg-white p-4 shadow-sm hover:shadow-md hover:border-slate-300 transition-all duration-200 flex flex-col justify-between gap-3">
+        <div className="flex items-start gap-4">
+          {p.photoUrl ? (
+            /* eslint-disable-next-line @next/next/no-img-element */
+            <img
+              src={p.photoUrl}
+              alt={p.name}
+              className="h-16 w-16 shrink-0 rounded-xl object-cover border border-slate-100 shadow-sm cursor-pointer hover:opacity-90 transition"
+              onClick={() => setShowModal(true)}
+            />
+          ) : (
+            <span
+              aria-hidden
+              className="grid h-16 w-16 shrink-0 place-items-center rounded-xl text-sm font-bold shadow-sm"
+              style={{ backgroundColor: s.tintBg, color: s.tintText }}
+            >
+              {initials(p.name)}
+            </span>
+          )}
+          <div className="min-w-0 flex-1">
+            <h3 className="truncate text-base font-bold text-[#14212e] leading-snug">{p.name}</h3>
+            <div className="mt-1 flex flex-col gap-1 text-[11px] text-[#8190a0]">
+              {p.locations.length > 0 && (
+                <span className="flex items-center gap-1 font-medium text-slate-600 truncate">
+                  📍 {p.locations.join(" · ")}
+                </span>
+              )}
+              <span className="flex items-center gap-1">
+                🕒 {p.updated ? t("card.metaUpdated", { time: timeAgo(p.updated) }) : t("card.noDate")}
+              </span>
+            </div>
+          </div>
+          <div className="shrink-0 flex flex-col items-end gap-1.5">
+            {p.found ? (
+              <>
+                <span
+                  className="rounded-full px-3 py-1.5 text-xs font-bold shadow-sm"
+                  style={{ backgroundColor: FOUND_BADGE.tintBg, color: FOUND_BADGE.tintText }}
+                >
+                  {FOUND_BADGE.emoji} {tD("foundBadge")}
+                </span>
+                {p.hospitalName && (
+                  <span className="text-[10px] font-bold text-red-700 bg-red-50 px-2 py-0.5 rounded-md flex items-center gap-1 border border-red-100 shadow-sm">
+                    <span className="text-xs">✚</span> {p.hospitalName}
+                  </span>
+                )}
+              </>
+            ) : (
+              <StatusBadge status={p.status} />
+            )}
+          </div>
         </div>
-        {p.found ? (
-          <span
-            className="shrink-0 rounded-full px-3 py-1.5 text-sm font-semibold"
-            style={{ backgroundColor: FOUND_BADGE.tintBg, color: FOUND_BADGE.tintText }}
-          >
-            {FOUND_BADGE.emoji} {tD("foundBadge")}
-          </span>
-        ) : (
-          <StatusBadge status={p.status} />
+
+        {p.description && (
+          <div className="bg-slate-50/60 rounded-xl p-3 border border-slate-100/80">
+            <p className="line-clamp-2 text-sm text-[#5b6b7b] italic">“{p.description}”</p>
+          </div>
         )}
+
+        <div className="flex flex-wrap items-center justify-between border-t border-slate-100 pt-2.5 mt-1 text-xs text-[#8190a0]">
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] font-medium text-slate-400">Origen:</span>
+            {primary?.label === "la app" && primary.href ? (
+              <Link
+                href={primary.href}
+                className="inline-block font-semibold text-[#2563a8] hover:underline"
+              >
+                {t("card.viewInApp")}
+              </Link>
+            ) : primary ? (
+              <SourceBadge source={primary.label} url={primary.href} />
+            ) : (
+              <span>Desconocido</span>
+            )}
+          </div>
+          
+          <div className="flex items-center gap-2">
+            {extra > 0 && (
+              <span className="text-[11px] font-medium text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">
+                +{extra} {t("card.moreSources", { count: extra }).replace(/[\d\s·]+/, "")}
+              </span>
+            )}
+            <button
+              type="button"
+              onClick={() => setShowModal(true)}
+              className="text-xs font-semibold text-[#2563a8] bg-[#2563a8]/5 hover:bg-[#2563a8]/10 rounded-lg px-2.5 py-1 transition"
+            >
+              👁️ Ver Detalles
+            </button>
+          </div>
+        </div>
       </div>
 
-      {p.description && (
-        <p className="mt-3 line-clamp-2 text-sm text-[#5b6b7b]">“{p.description}”</p>
-      )}
-
-      {primary && (
-        <div className="mt-2 flex flex-wrap items-center gap-x-2 text-xs">
-          {primary.label === "la app" && primary.href ? (
-            <Link
-              href={primary.href}
-              className="inline-block font-medium text-[#2563a8] underline"
+      {showModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl relative flex flex-col gap-4 animate-in fade-in zoom-in duration-200">
+            <button
+              type="button"
+              onClick={() => setShowModal(false)}
+              className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 text-lg font-bold"
             >
-              {t("card.viewInApp")}
-            </Link>
-          ) : (
-            <SourceBadge source={primary.label} url={primary.href} />
-          )}
-          {extra > 0 && (
-            <span className="text-slate-400">· {t("card.moreSources", { count: extra })}</span>
-          )}
+              ✕
+            </button>
+            
+            <div className="flex items-center gap-4 border-b border-slate-100 pb-4">
+              {p.photoUrl ? (
+                /* eslint-disable-next-line @next/next/no-img-element */
+                <img
+                  src={p.photoUrl}
+                  alt={p.name}
+                  className="h-16 w-16 rounded-xl object-cover border border-slate-100 shadow-sm"
+                />
+              ) : (
+                <span
+                  aria-hidden
+                  className="grid h-16 w-16 place-items-center rounded-xl text-lg font-bold shadow-sm"
+                  style={{ backgroundColor: s.tintBg, color: s.tintText }}
+                >
+                  {initials(p.name)}
+                </span>
+              )}
+              <div>
+                <h2 className="text-xl font-bold text-[#14212e]">{p.name}</h2>
+                <p className="text-xs text-[#8190a0]">
+                  Actualizado: {p.updated ? timeAgo(p.updated) : "Sin fecha"}
+                </p>
+              </div>
+            </div>
+
+            {p.photoUrl && (
+              <div className="rounded-xl overflow-hidden border border-slate-100 bg-slate-50 flex justify-center max-h-[300px]">
+                <img
+                  src={p.photoUrl}
+                  alt={p.name}
+                  className="object-contain max-h-[300px]"
+                />
+              </div>
+            )}
+
+            <div className="space-y-3 text-sm">
+              <div className="flex justify-between items-center bg-slate-50 p-3 rounded-xl border border-slate-100">
+                <span className="font-semibold text-slate-600">Estado de búsqueda:</span>
+                {p.found ? (
+                  <span
+                    className="rounded-full px-3 py-1 text-xs font-bold shadow-sm"
+                    style={{ backgroundColor: FOUND_BADGE.tintBg, color: FOUND_BADGE.tintText }}
+                  >
+                    {FOUND_BADGE.emoji} {tD("foundBadge")}
+                  </span>
+                ) : (
+                  <StatusBadge status={p.status} />
+                )}
+              </div>
+
+              {p.hospitalName && (
+                <div className="flex justify-between items-center bg-red-50 p-3 rounded-xl border border-red-100">
+                  <span className="font-semibold text-red-900">Hospitalizado en:</span>
+                  <span className="text-xs font-bold text-red-700 bg-white border border-red-200 rounded-md px-2 py-0.5 shadow-sm">
+                    🏥 {p.hospitalName}
+                  </span>
+                </div>
+              )}
+
+              {p.locations.length > 0 && (
+                <div className="bg-slate-50/50 p-3 rounded-xl border border-slate-100/60">
+                  <span className="font-semibold text-slate-600 block mb-1">📍 Ubicaciones reportadas:</span>
+                  <p className="text-[#5b6b7b]">{p.locations.join(" · ")}</p>
+                </div>
+              )}
+
+              {p.description && (
+                <div className="bg-slate-50/50 p-3 rounded-xl border border-slate-100/60">
+                  <span className="font-semibold text-slate-600 block mb-1">📝 Detalles / Descripción:</span>
+                  <p className="text-[#5b6b7b] italic">“{p.description}”</p>
+                </div>
+              )}
+            </div>
+
+            <div className="flex justify-end gap-2 border-t border-slate-100 pt-4 mt-1">
+              <button
+                type="button"
+                onClick={() => setShowModal(false)}
+                className="rounded-lg bg-[#2563a8] text-white px-5 py-2 text-sm font-semibold shadow hover:bg-[#1a4a82] transition"
+              >
+                Cerrar
+              </button>
+            </div>
+          </div>
         </div>
       )}
-    </div>
+    </>
   );
 }

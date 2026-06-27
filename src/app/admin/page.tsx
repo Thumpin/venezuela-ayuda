@@ -1,14 +1,13 @@
 import Link from "next/link";
 import Header from "@/components/Header";
 import AdminLogin from "@/components/admin/AdminLogin";
-import DamagedAdminRow from "@/components/admin/DamagedAdminRow";
-import ModerationRow from "@/components/admin/ModerationRow";
-import CenterAdminRow from "@/components/admin/CenterAdminRow";
+import AdminTabs from "@/components/admin/AdminTabs";
 import {
   getAdminEmail,
   listDamagedReportsAdmin,
   listModerationItems,
   listCollectionCentersAdmin,
+  listHospitalizedAdmin,
 } from "@/lib/admin";
 import { adminSignOut } from "@/app/admin/actions";
 
@@ -28,12 +27,12 @@ export default async function AdminPage() {
     );
   }
 
-  const [damaged, mod, centers] = await Promise.all([
+  const [damaged, mod, centers, hospitalized] = await Promise.all([
     listDamagedReportsAdmin(),
     listModerationItems(),
     listCollectionCentersAdmin(),
+    listHospitalizedAdmin(),
   ]);
-  const pendingCenters = centers.filter((c) => !c.verified).length;
 
   return (
     <>
@@ -59,6 +58,12 @@ export default async function AdminPage() {
             >
               Administradores
             </Link>
+            <Link
+              href="/admin/duplicados"
+              className="rounded-lg border border-[#e6ecf2] px-3 py-2 text-sm font-medium text-[#14212e] transition hover:bg-slate-50"
+            >
+              Duplicados
+            </Link>
             <form action={adminSignOut}>
               <button
                 type="submit"
@@ -70,59 +75,7 @@ export default async function AdminPage() {
           </div>
         </div>
 
-        <section className="mt-8">
-          <h2 className="flex items-center gap-2 text-base font-semibold text-[#14212e]">
-            Centros de acopio
-            {pendingCenters > 0 && (
-              <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-bold text-amber-700">
-                {pendingCenters} pendiente{pendingCenters === 1 ? "" : "s"}
-              </span>
-            )}
-          </h2>
-          {centers.length === 0 ? (
-            <p className="mt-3 text-sm text-[#8190a0]">No hay centros de acopio.</p>
-          ) : (
-            <div className="mt-3 space-y-3">
-              {centers.map((c) => (
-                <CenterAdminRow item={c} key={c.id} />
-              ))}
-            </div>
-          )}
-        </section>
-
-        <section className="mt-8">
-          <h2 className="text-base font-semibold text-[#14212e]">
-            Edificios dañados (comunidad)
-          </h2>
-          {damaged.length === 0 ? (
-            <p className="mt-3 text-sm text-[#8190a0]">
-              No hay reportes de edificios dañados.
-            </p>
-          ) : (
-            <div className="mt-3 space-y-3">
-              {damaged.map((d) => (
-                <DamagedAdminRow item={d} key={d.id} />
-              ))}
-            </div>
-          )}
-        </section>
-
-        <section className="mt-8">
-          <h2 className="text-base font-semibold text-[#14212e]">
-            Moderación · reportes recientes
-          </h2>
-          {mod.length === 0 ? (
-            <p className="mt-3 text-sm text-[#8190a0]">
-              No hay reportes recientes.
-            </p>
-          ) : (
-            <div className="mt-3 space-y-3">
-              {mod.map((m) => (
-                <ModerationRow item={m} key={m.table + m.id} />
-              ))}
-            </div>
-          )}
-        </section>
+        <AdminTabs centers={centers} damaged={damaged} mod={mod} hospitalized={hospitalized} />
       </main>
     </>
   );

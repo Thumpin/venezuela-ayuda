@@ -50,6 +50,20 @@ export default async function Home() {
             tileBg="#eef3fa"
           />
           <BigButton
+            href="/buscar?tipo=desaparecidos"
+            emoji="👤"
+            label="Lista de Desaparecidos"
+            sublabel="Ver listado de personas buscadas y reportadas desaparecidas"
+            tileBg="#fef3c7"
+          />
+          <BigButton
+            href="/buscar?tipo=hospitalizados"
+            emoji="🏥"
+            label="Lista de Hospitalizados"
+            sublabel="Ver listado de personas registradas en hospitales y centros de salud"
+            tileBg="#d1fae5"
+          />
+          <BigButton
             href="/necesito-ayuda"
             emoji="🆘"
             label={t("actions.needHelpLabel")}

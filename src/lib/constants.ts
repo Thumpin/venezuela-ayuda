@@ -16,9 +16,11 @@ import * as CANONICAL from "./canonical.mjs";
 // `pin` = solid color used on the map. `tintBg`/`tintText` = the soft-tint badge
 // style from the design system (calm, never saturated full-bleed).
 export const CHECKIN_STATUSES = {
-  SAFE: { label: "A salvo", emoji: "✅", pin: "#2f9e6e", tintBg: "#eaf3ec", tintText: "#1f7a52" },
+  SAFE: { label: "A salvo", emoji: "🟢", pin: "#2da564", tintBg: "#eaf6ef", tintText: "#187741" },
   NEEDS_HELP: { label: "Necesita ayuda", emoji: "🆘", pin: "#e2603a", tintBg: "#fdf0e9", tintText: "#c05a32" },
   LOOKING_FOR_SOMEONE: { label: "En búsqueda", emoji: "🔎", pin: "#b5811f", tintBg: "#fff5e6", tintText: "#b5811f" },
+  DIFUNTO: { label: "Difunto", emoji: "⚫", pin: "#1e293b", tintBg: "#f1f5f9", tintText: "#1e293b" },
+  HOSPITALIZADO: { label: "Hospitalizado", emoji: "🏥", pin: "#dc2626", tintBg: "#fef2f2", tintText: "#991b1b" },
 } as const;
 export type CheckinStatus = keyof typeof CHECKIN_STATUSES;
 

@@ -21,7 +21,7 @@ export const HELP_CATEGORIES = ["medical", "food", "water", "shelter", "transpor
 export const OFFER_CATEGORIES = ["transportation", "food", "shelter", "medical", "supplies", "translation"];
 export const URGENCY = ["LOW", "MEDIUM", "HIGH", "CRITICAL"];
 export const SEVERITY = ["CRACKS", "PARTIAL", "COLLAPSE_RISK", "COLLAPSED"];
-export const CHECKIN_STATUS = ["SAFE", "NEEDS_HELP", "LOOKING_FOR_SOMEONE"];
+export const CHECKIN_STATUS = ["SAFE", "NEEDS_HELP", "LOOKING_FOR_SOMEONE", "DIFUNTO", "HOSPITALIZADO"];
 export const REQUEST_STATUS = ["OPEN", "IN_PROGRESS", "RESOLVED"];
 
 // Límites de longitud de inputs. Unión de los campos que necesitan el TS (UI:
