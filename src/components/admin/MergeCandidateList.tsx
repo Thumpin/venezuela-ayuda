@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import { releaseAssignments } from "@/app/admin/actions";
-import MergeCandidateRow from "@/components/admin/MergeCandidateRow";
 import MergeClusterGroup from "@/components/admin/MergeClusterGroup";
 import { buildClusters } from "@/lib/mergeClusters";
 import type { MergeCandidate } from "@/lib/admin";
@@ -70,12 +69,8 @@ export default function MergeCandidateList({ candidates }: { candidates: MergeCa
       </div>
 
       <div className="mt-4 space-y-4">
-        {/* Blocks first (a person reported 3-4 times), then lone pairs. */}
         {clusters.map((cl) => (
           <MergeClusterGroup key={cl.id} cluster={cl} onDone={reRender} />
-        ))}
-        {singles.map((c) => (
-          <MergeCandidateRow key={c.id} item={c} onDone={reRender} />
         ))}
         {filtered.length === 0 && (
           <p className="py-8 text-center text-sm text-[#8190a0]">No se encontraron candidatos.</p>

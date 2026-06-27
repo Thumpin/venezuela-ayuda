@@ -59,7 +59,7 @@ export function buildClusters(candidates: MergeCandidate[]): {
       if (!byId.has(p.dup.id)) byId.set(p.dup.id, p.dup);
     }
     const members = Array.from(byId.values());
-    if (members.length >= 3) {
+    if (members.length >= 2) {
       const tier = pairs.reduce<MergeCandidate["tier"]>(
         (best, p) => (RANK[p.tier] < RANK[best] ? p.tier : best),
         "REVIEW",
