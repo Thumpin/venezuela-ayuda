@@ -33,6 +33,9 @@ import { ingestArgs, patchArgs, buildCenterRow } from "@/lib/internalWrite.mjs";
 import { frIndexPerson } from "@/lib/fr";
 import { logError, logWarn } from "@/lib/log.mjs";
 import type { Sighting, RequestResponse } from "@/lib/types";
+import type { Database } from "@/types/database.types.gen";
+
+type ChildStatus = Database["public"]["Enums"]["child_status"];
 
 export type ActionState = {
   ok: boolean;
@@ -646,7 +649,7 @@ export async function submitFoundChild(
   if (!isSupabaseConfigured()) return notConfigured();
   if (isBot(form)) return { ok: true };
 
-  const limited = rateLimit(await clientKey("child"), { limit: 6, windowSec: 60 });
+  const limited = await rateLimit(await clientKey("child"), { limit: 6, windowSec: 60 });
   if (!limited.ok)
     return {
       ok: false,
@@ -661,7 +664,8 @@ export async function submitFoundChild(
     fieldErrors.reporter_name = "Escribe tu nombre completo.";
   if (Object.keys(fieldErrors).length) return { ok: false, fieldErrors };
 
-  const status = oneOfChild(String(form.get("status") || ""), CHILD_STATUS) ?? "ALONE_NO_FAMILY";
+  const status = (oneOfChild(String(form.get("status") || ""), CHILD_STATUS) ??
+    "ALONE_NO_FAMILY") as ChildStatus;
   const gender = oneOfChild(String(form.get("gender") || ""), CHILD_GENDER);
   const directRaw = String(form.get("direct_contact") || "");
   const direct_contact = directRaw === "true" ? true : directRaw === "false" ? false : null;

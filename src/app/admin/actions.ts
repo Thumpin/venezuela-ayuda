@@ -11,7 +11,7 @@ import { patchArgs, deleteArgs } from "@/lib/internalWrite.mjs";
 import { buildRow, INGEST_TABLES } from "@/lib/ingest.mjs";
 import { parseDump } from "@/lib/batchIngest.mjs";
 import { VA_PARTNER_ID, VA_SOURCE, CHILD_STATUS } from "@/lib/canonical.mjs";
-import type { Json } from "@/types/database.types.gen";
+import type { Database, Json } from "@/types/database.types.gen";
 import { logError, logWarn } from "@/lib/log.mjs";
 
 export type AuthState = { error?: string };
@@ -601,7 +601,9 @@ export async function addChildCustodyEvent(_prev: Result, form: FormData): Promi
   if (!UUID_RE.test(childId)) return { ok: false, error: "Id inválido." };
 
   const statusRaw = String(form.get("status") || "");
-  const status = (CHILD_STATUS as string[]).includes(statusRaw) ? statusRaw : null;
+  const status = ((CHILD_STATUS as string[]).includes(statusRaw)
+    ? statusRaw
+    : null) as Database["public"]["Enums"]["child_status"] | null;
   const eventDateRaw = trimOrNull(form.get("event_date"), 10);
   const event_date = eventDateRaw && ISO_DATE.test(eventDateRaw) ? eventDateRaw : null;
   const placement = trimOrNull(form.get("placement"), 200);
@@ -625,7 +627,9 @@ export async function addChildCustodyEvent(_prev: Result, form: FormData): Promi
   });
   if (error) return { ok: false, error: "No se pudo registrar el evento." };
 
-  const patch: Record<string, unknown> = { last_custody_at: new Date().toISOString() };
+  const patch: Database["public"]["Tables"]["unaccompanied_children"]["Update"] = {
+    last_custody_at: new Date().toISOString(),
+  };
   if (status) patch.status = status;
   await svc.from("unaccompanied_children").update(patch).eq("id", childId);
 

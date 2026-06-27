@@ -9,6 +9,150 @@ export type Json =
 export type Database = {
   public: {
     Tables: {
+      child_custody_events: {
+        Row: {
+          child_id: string
+          created_at: string
+          custodian: string | null
+          event_date: string | null
+          facility_name: string | null
+          note: string | null
+          occurred_at: string
+          placement: string | null
+          recorded_by: string | null
+          seq: number
+          source: string | null
+          status: Database["public"]["Enums"]["child_status"] | null
+        }
+        Insert: {
+          child_id: string
+          created_at?: string
+          custodian?: string | null
+          event_date?: string | null
+          facility_name?: string | null
+          note?: string | null
+          occurred_at?: string
+          placement?: string | null
+          recorded_by?: string | null
+          seq?: number
+          source?: string | null
+          status?: Database["public"]["Enums"]["child_status"] | null
+        }
+        Update: {
+          child_id?: string
+          created_at?: string
+          custodian?: string | null
+          event_date?: string | null
+          facility_name?: string | null
+          note?: string | null
+          occurred_at?: string
+          placement?: string | null
+          recorded_by?: string | null
+          seq?: number
+          source?: string | null
+          status?: Database["public"]["Enums"]["child_status"] | null
+        }
+        Relationships: []
+      }
+      unaccompanied_children: {
+        Row: {
+          age: string | null
+          created_at: string
+          dedup_key: string | null
+          description: string | null
+          direct_contact: boolean | null
+          external_id: string | null
+          found_at: string | null
+          found_place: string | null
+          gender: Database["public"]["Enums"]["child_gender"] | null
+          hidden: boolean
+          hospital: string | null
+          id: string
+          info_source: Database["public"]["Enums"]["child_info_source"] | null
+          info_source_detail: string | null
+          is_minor: boolean
+          last_custody_at: string | null
+          last_seen_at: string | null
+          last_seen_place: string | null
+          latitude: number | null
+          location: unknown
+          longitude: number | null
+          manage_token: string | null
+          name: string
+          notes: string | null
+          photo_url: string | null
+          reporter_name: string | null
+          source: string | null
+          source_url: string | null
+          status: Database["public"]["Enums"]["child_status"]
+          verified: boolean
+        }
+        Insert: {
+          age?: string | null
+          created_at?: string
+          dedup_key?: string | null
+          description?: string | null
+          direct_contact?: boolean | null
+          external_id?: string | null
+          found_at?: string | null
+          found_place?: string | null
+          gender?: Database["public"]["Enums"]["child_gender"] | null
+          hidden?: boolean
+          hospital?: string | null
+          id?: string
+          info_source?: Database["public"]["Enums"]["child_info_source"] | null
+          info_source_detail?: string | null
+          is_minor?: boolean
+          last_custody_at?: string | null
+          last_seen_at?: string | null
+          last_seen_place?: string | null
+          latitude?: number | null
+          location?: unknown
+          longitude?: number | null
+          manage_token?: string | null
+          name: string
+          notes?: string | null
+          photo_url?: string | null
+          reporter_name?: string | null
+          source?: string | null
+          source_url?: string | null
+          status?: Database["public"]["Enums"]["child_status"]
+          verified?: boolean
+        }
+        Update: {
+          age?: string | null
+          created_at?: string
+          dedup_key?: string | null
+          description?: string | null
+          direct_contact?: boolean | null
+          external_id?: string | null
+          found_at?: string | null
+          found_place?: string | null
+          gender?: Database["public"]["Enums"]["child_gender"] | null
+          hidden?: boolean
+          hospital?: string | null
+          id?: string
+          info_source?: Database["public"]["Enums"]["child_info_source"] | null
+          info_source_detail?: string | null
+          is_minor?: boolean
+          last_custody_at?: string | null
+          last_seen_at?: string | null
+          last_seen_place?: string | null
+          latitude?: number | null
+          location?: unknown
+          longitude?: number | null
+          manage_token?: string | null
+          name?: string
+          notes?: string | null
+          photo_url?: string | null
+          reporter_name?: string | null
+          source?: string | null
+          source_url?: string | null
+          status?: Database["public"]["Enums"]["child_status"]
+          verified?: boolean
+        }
+        Relationships: []
+      }
       admin_emails: {
         Row: {
           added_by: string | null
@@ -886,6 +1030,14 @@ export type Database = {
           source_url?: string | null
           status?: Database["public"]["Enums"]["request_status"] | null
           urgency?: Database["public"]["Enums"]["urgency_level"] | null
+        }
+        Relationships: []
+      }
+      public_unaccompanied_children: {
+        Row: {
+          created_at: string | null
+          id: string | null
+          name: string | null
         }
         Relationships: []
       }
@@ -1843,6 +1995,20 @@ export type Database = {
     }
     Enums: {
       checkin_status: "SAFE" | "NEEDS_HELP" | "LOOKING_FOR_SOMEONE"
+      child_gender: "BOY" | "GIRL" | "UNSPECIFIED"
+      child_info_source:
+        | "SOCIAL_MEDIA"
+        | "FRIEND_FAMILY"
+        | "INSTITUTION"
+        | "EXISTING_LIST"
+        | "OTHER"
+      child_status:
+        | "ALONE_NO_FAMILY"
+        | "ACCOMPANIED_SEEKING_FAMILY"
+        | "IN_SHELTER"
+        | "IN_HOSPITAL"
+        | "REUNITED"
+        | "WITH_NON_FAMILY"
       damage_severity: "CRACKS" | "PARTIAL" | "COLLAPSE_RISK" | "COLLAPSED"
       help_category:
         | "medical"
@@ -1998,6 +2164,22 @@ export const Constants = {
   public: {
     Enums: {
       checkin_status: ["SAFE", "NEEDS_HELP", "LOOKING_FOR_SOMEONE"],
+      child_gender: ["BOY", "GIRL", "UNSPECIFIED"],
+      child_info_source: [
+        "SOCIAL_MEDIA",
+        "FRIEND_FAMILY",
+        "INSTITUTION",
+        "EXISTING_LIST",
+        "OTHER",
+      ],
+      child_status: [
+        "ALONE_NO_FAMILY",
+        "ACCOMPANIED_SEEKING_FAMILY",
+        "IN_SHELTER",
+        "IN_HOSPITAL",
+        "REUNITED",
+        "WITH_NON_FAMILY",
+      ],
       damage_severity: ["CRACKS", "PARTIAL", "COLLAPSE_RISK", "COLLAPSED"],
       help_category: [
         "medical",
