@@ -44,8 +44,10 @@ export async function frIndexPerson(p: {
       body: fd,
       signal: ctrl.signal,
     });
-  } catch {
-    // no-op: asistivo, nunca bloquea el registro
+  } catch (err) {
+    // Asistivo: nunca bloquea el registro. Pero SÍ dejamos rastro: si la key del
+    // FR está mal (401), sin este log los registros no se indexan en silencio.
+    console.warn(`[FR] /v1/index falló para external_id=${p.externalId} (¿FR_API_KEY de 48 chars? ¿FR_API_URL?). Persona NO indexada.`, err)
   } finally {
     clearTimeout(timer);
   }
