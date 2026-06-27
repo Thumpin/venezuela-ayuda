@@ -259,6 +259,10 @@ export default function AdminTabs({ centers, damaged, mod, hospitalized }: Admin
     "acopio" | "hospitales" | "hospitalizados" | "personas" | "solicitudes" | "ofrecimientos" | "edificios"
   >("acopio");
 
+  const [acopioState, setAcopioState] = useState<"todos" | "pendientes" | "verificados" | "ocultos">("todos");
+  const [hospitalState, setHospitalState] = useState<"todos" | "pendientes" | "verificados" | "ocultos">("todos");
+  const [damagedState, setDamagedState] = useState<"todos" | "pendientes" | "verificados" | "ocultos">("todos");
+
   const acopioCenters = centers.filter(c => c.source !== "hospital-cross-reference");
   const medicalCenters = centers.filter(c => c.source === "hospital-cross-reference");
 
@@ -268,6 +272,50 @@ export default function AdminTabs({ centers, damaged, mod, hospitalized }: Admin
   const peopleItems = mod.filter(m => m.table === "checkins");
   const requestItems = mod.filter(m => m.table === "help_requests");
   const offerItems = mod.filter(m => m.table === "help_offers");
+
+  // Options configuration for pill filters
+  const acopioOpts = [
+    { key: "todos" as const, label: "Todos", count: acopioCenters.length },
+    { key: "pendientes" as const, label: "Pendientes", count: acopioCenters.filter((c) => !c.verified && !c.hidden).length },
+    { key: "verificados" as const, label: "Verificados", count: acopioCenters.filter((c) => c.verified && !c.hidden).length },
+    { key: "ocultos" as const, label: "Ocultos", count: acopioCenters.filter((c) => c.hidden).length },
+  ];
+
+  const hospitalOpts = [
+    { key: "todos" as const, label: "Todos", count: medicalCenters.length },
+    { key: "pendientes" as const, label: "Pendientes", count: medicalCenters.filter((c) => !c.verified && !c.hidden).length },
+    { key: "verificados" as const, label: "Verificados", count: medicalCenters.filter((c) => c.verified && !c.hidden).length },
+    { key: "ocultos" as const, label: "Ocultos", count: medicalCenters.filter((c) => c.hidden).length },
+  ];
+
+  const damagedOpts = [
+    { key: "todos" as const, label: "Todos", count: damaged.length },
+    { key: "pendientes" as const, label: "Sin verificar", count: damaged.filter((d) => !d.verified_at && !d.hidden).length },
+    { key: "verificados" as const, label: "Verificados", count: damaged.filter((d) => d.verified_at && !d.hidden).length },
+    { key: "ocultos" as const, label: "Ocultos", count: damaged.filter((d) => d.hidden).length },
+  ];
+
+  // Filtering implementation
+  const acopioFiltered = acopioCenters.filter((c) => {
+    if (acopioState === "pendientes") return !c.verified && !c.hidden;
+    if (acopioState === "verificados") return c.verified && !c.hidden;
+    if (acopioState === "ocultos") return c.hidden;
+    return true;
+  });
+
+  const medicalFiltered = medicalCenters.filter((c) => {
+    if (hospitalState === "pendientes") return !c.verified && !c.hidden;
+    if (hospitalState === "verificados") return c.verified && !c.hidden;
+    if (hospitalState === "ocultos") return c.hidden;
+    return true;
+  });
+
+  const damagedFiltered = damaged.filter((d) => {
+    if (damagedState === "pendientes") return !d.verified_at && !d.hidden;
+    if (damagedState === "verificados") return d.verified_at && !d.hidden;
+    if (damagedState === "ocultos") return d.hidden;
+    return true;
+  });
 
   const tabs = [
     {
@@ -352,12 +400,41 @@ export default function AdminTabs({ centers, damaged, mod, hospitalized }: Admin
       <div className="mt-6">
         {activeTab === "acopio" && (
           <div>
-            <h3 className="text-base font-semibold text-[#14212e] mb-4">Centros de acopio registrados</h3>
-            {acopioCenters.length === 0 ? (
-              <p className="text-sm text-[#8190a0]">No hay centros de acopio.</p>
+            <h3 className="text-base font-semibold text-[#14212e]">Centros de acopio registrados</h3>
+            
+            {/* Sub-filters */}
+            <div className="mt-4 mb-3 flex flex-wrap gap-2">
+              {acopioOpts.map((o) => {
+                const active = acopioState === o.key;
+                return (
+                  <button
+                    key={o.key}
+                    type="button"
+                    onClick={() => setAcopioState(o.key)}
+                    className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium transition ${
+                      active
+                        ? "bg-[#14212e] text-white"
+                        : "bg-slate-100 text-[#5b6b7b] hover:bg-slate-200"
+                    }`}
+                  >
+                    {o.label}
+                    <span
+                      className={`rounded-full px-1.5 text-[11px] font-bold ${
+                        active ? "bg-white/25 text-white" : "bg-white text-[#8190a0]"
+                      }`}
+                    >
+                      {o.count}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {acopioFiltered.length === 0 ? (
+              <p className="text-sm text-[#8190a0] mt-4">No hay centros de acopio en esta categoría.</p>
             ) : (
               <div className="space-y-3">
-                {acopioCenters.map((c) => (
+                {acopioFiltered.map((c) => (
                   <CenterAdminRow item={c} key={c.id} />
                 ))}
               </div>
@@ -367,12 +444,41 @@ export default function AdminTabs({ centers, damaged, mod, hospitalized }: Admin
 
         {activeTab === "hospitales" && (
           <div>
-            <h3 className="text-base font-semibold text-[#14212e] mb-4">Centros hospitalarios registrados</h3>
-            {medicalCenters.length === 0 ? (
-              <p className="text-sm text-[#8190a0]">No hay hospitales registrados.</p>
+            <h3 className="text-base font-semibold text-[#14212e]">Centros hospitalarios registrados</h3>
+
+            {/* Sub-filters */}
+            <div className="mt-4 mb-3 flex flex-wrap gap-2">
+              {hospitalOpts.map((o) => {
+                const active = hospitalState === o.key;
+                return (
+                  <button
+                    key={o.key}
+                    type="button"
+                    onClick={() => setHospitalState(o.key)}
+                    className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium transition ${
+                      active
+                        ? "bg-[#14212e] text-white"
+                        : "bg-slate-100 text-[#5b6b7b] hover:bg-slate-200"
+                    }`}
+                  >
+                    {o.label}
+                    <span
+                      className={`rounded-full px-1.5 text-[11px] font-bold ${
+                        active ? "bg-white/25 text-white" : "bg-white text-[#8190a0]"
+                      }`}
+                    >
+                      {o.count}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {medicalFiltered.length === 0 ? (
+              <p className="text-sm text-[#8190a0] mt-4">No hay hospitales registrados en esta categoría.</p>
             ) : (
               <div className="space-y-3">
-                {medicalCenters.map((c) => (
+                {medicalFiltered.map((c) => (
                   <CenterAdminRow item={c} key={c.id} />
                 ))}
               </div>
@@ -473,12 +579,41 @@ export default function AdminTabs({ centers, damaged, mod, hospitalized }: Admin
 
         {activeTab === "edificios" && (
           <div>
-            <h3 className="text-base font-semibold text-[#14212e] mb-4">Reportes de edificaciones dañadas</h3>
-            {damaged.length === 0 ? (
-              <p className="text-sm text-[#8190a0]">No hay reportes de edificios dañados.</p>
+            <h3 className="text-base font-semibold text-[#14212e]">Reportes de edificaciones dañadas</h3>
+
+            {/* Sub-filters */}
+            <div className="mt-4 mb-3 flex flex-wrap gap-2">
+              {damagedOpts.map((o) => {
+                const active = damagedState === o.key;
+                return (
+                  <button
+                    key={o.key}
+                    type="button"
+                    onClick={() => setDamagedState(o.key)}
+                    className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium transition ${
+                      active
+                        ? "bg-[#14212e] text-white"
+                        : "bg-slate-100 text-[#5b6b7b] hover:bg-slate-200"
+                    }`}
+                  >
+                    {o.label}
+                    <span
+                      className={`rounded-full px-1.5 text-[11px] font-bold ${
+                        active ? "bg-white/25 text-white" : "bg-white text-[#8190a0]"
+                      }`}
+                    >
+                      {o.count}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {damagedFiltered.length === 0 ? (
+              <p className="text-sm text-[#8190a0] mt-4">No hay reportes de edificios en esta categoría.</p>
             ) : (
               <div className="space-y-3">
-                {damaged.map((d) => (
+                {damagedFiltered.map((d) => (
                   <DamagedAdminRow item={d} key={d.id} />
                 ))}
               </div>
