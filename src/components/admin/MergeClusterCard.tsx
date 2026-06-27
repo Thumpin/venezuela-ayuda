@@ -98,6 +98,7 @@ function MemberCard({
         <Field k="Zona" v={side.place_name || side.city || "—"} />
         {side.message && <Field k="Descripción" v={side.message} />}
         <Field k="Teléfono" v={side.has_phone ? "sí (privado)" : "no"} />
+        <Field k="Cédula" v={side.has_cedula ? "sí (privado)" : "no"} />
         <Field k="Fuente" v={side.source || "—"} />
         <Field k="Reportado" v={timeAgo(side.created_at)} />
       </dl>
@@ -130,6 +131,7 @@ export default function MergeClusterCard({
   const [zoom, setZoom] = useState<string | null>(null);
 
   const tier = TIER_LABEL[cluster.tier];
+  const cedulaSignal = cluster.pairs.some((p) => p.evidence?.cedula_match === true);
 
   // Esc closes the lightbox — fast keyboard flow while reviewing many blocks.
   useEffect(() => {
@@ -233,6 +235,11 @@ export default function MergeClusterCard({
         <span className="text-xs text-[#8190a0]">
           confianza {(cluster.confidence * 100).toFixed(0)}%
         </span>
+        {cedulaSignal && (
+          <span className="rounded-full bg-sky-100 px-2.5 py-0.5 text-xs font-semibold text-sky-700">
+            cédula coincide
+          </span>
+        )}
       </div>
 
       <p className="mb-3 text-xs text-[#8190a0]">

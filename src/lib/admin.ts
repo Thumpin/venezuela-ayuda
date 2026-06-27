@@ -83,6 +83,7 @@ export interface MergeSide {
   message: string | null;
   photo_url: string | null;
   has_phone: boolean;
+  has_cedula: boolean;
   source: string | null;
   created_at: string;
 }
@@ -167,7 +168,7 @@ export async function listMergeClusters(
   const ids = Array.from(new Set(cands.flatMap((c) => [c.keep_id, c.dup_id])));
   const { data: rows } = await svc
     .from("checkins")
-    .select("id,name,city,place_name,message,photo_url,phone_private,source,created_at")
+    .select("id,name,city,place_name,message,photo_url,phone_private,cedula_private,source,created_at")
     .in("id", ids);
   const byId = new Map<string, MergeSide>();
   for (const r of rows ?? [])
@@ -179,6 +180,7 @@ export async function listMergeClusters(
       message: r.message ?? null,
       photo_url: r.photo_url ?? null,
       has_phone: Boolean(r.phone_private),
+      has_cedula: Boolean(r.cedula_private),
       source: r.source ?? null,
       created_at: r.created_at,
     });
