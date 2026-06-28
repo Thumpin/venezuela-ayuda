@@ -59,25 +59,32 @@ export function isUuid(v) {
   return typeof v === "string" && UUID_RE.test(v);
 }
 
-// type (wire) → tabla destino. Espeja el switch de ingest.mjs.
+// type (wire) → tabla destino. Espeja el switch de ingest.mjs. Incluye
+// unaccompanied_child (editable por PATCH vía el RPC patch_child, ver route.ts);
+// NO entra en RESOURCES → la lectura abierta por id sigue siendo de 4 tablas.
 export const TABLE_FOR_TYPE = {
   missing_person: "checkins",
   checkin: "checkins",
   help_request: "help_requests",
   help_offer: "help_offers",
   damaged_building: "damaged_reports",
+  unaccompanied_child: "unaccompanied_children",
 };
 
-// tabla → vista pública (sin PII).
+// tabla → vista pública (sin PII). unaccompanied_children proyecta solo-nombre
+// (protección infantil) — se usa para proyectar la respuesta del PATCH.
 export const VIEW_FOR_TABLE = {
   checkins: "public_checkins",
   help_requests: "public_help_requests",
   help_offers: "public_help_offers",
   damaged_reports: "public_damaged_reports",
+  unaccompanied_children: "public_unaccompanied_children",
 };
 
-// Tablas a probar para resolver un id, con su vista y columnas públicas (reusa
-// VIEW_COLUMNS → nunca incluye PII). Orden estable.
+// Tablas a probar para resolver un id en la lectura ABIERTA (GET /reports/{id}),
+// con su vista y columnas públicas (reusa VIEW_COLUMNS → nunca incluye PII).
+// Orden estable. NO incluye unaccompanied_children: la superficie pública por id
+// se mantiene mínima (los niños solo se listan, solo-nombre, vía GET /reports).
 export const RESOURCES = ["checkins", "help_requests", "help_offers", "damaged_reports"].map((table) => {
   const view = VIEW_FOR_TABLE[table];
   return { table, view, columns: VIEW_COLUMNS[view] };
@@ -89,7 +96,12 @@ export function typeForResource(table, row) {
   if (table === "checkins") {
     return row?.status === "LOOKING_FOR_SOMEONE" ? "missing_person" : "checkin";
   }
-  return { help_requests: "help_request", help_offers: "help_offer", damaged_reports: "damaged_building" }[table] ?? null;
+  return {
+    help_requests: "help_request",
+    help_offers: "help_offer",
+    damaged_reports: "damaged_building",
+    unaccompanied_children: "unaccompanied_child",
+  }[table] ?? null;
 }
 
 // limit crudo (string|number|null) → entero acotado [1, MAX_LIMIT], default DEFAULT_LIMIT.

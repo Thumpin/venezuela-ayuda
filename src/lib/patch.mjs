@@ -20,6 +20,9 @@ import {
   SEVERITY,
   CHECKIN_STATUS,
   REQUEST_STATUS,
+  CHILD_STATUS,
+  CHILD_GENDER,
+  CHILD_INFO_SOURCE,
   LIMITS,
 } from "./canonical.mjs";
 
@@ -75,6 +78,32 @@ const SPECS = {
     contact: { kind: "text", max: LIMITS.phone },
     risk_level: { kind: "enum", values: RISK_LEVELS },
     risk_priority: { kind: "bool" },
+    latitude: { kind: "coord" },
+    longitude: { kind: "coord" },
+  },
+  // Niños no acompañados (protección infantil). Campos mutables = los del alta
+  // (ver `case "unaccompanied_child"` en ingest.mjs:154), menos identidad/origen
+  // (id/source/external_id, inmutables) y sistema (manage_token/dedup_key/hidden/
+  // verified/last_custody_at). `name` y `status` son NOT NULL → no se vacían. Un
+  // cambio de `status` lo materializa el RPC patch_child como evento de custodia +
+  // bump de last_custody_at (no se hace acá: esto solo valida el patch de campos).
+  unaccompanied_children: {
+    name: { kind: "text", max: LIMITS.name, required: true },
+    reporter_name: { kind: "text", max: LIMITS.name },
+    age: { kind: "text", max: LIMITS.age },
+    gender: { kind: "enum", values: CHILD_GENDER },
+    description: { kind: "text", max: LIMITS.description },
+    found_place: { kind: "text", max: LIMITS.found_place },
+    found_at: { kind: "date" },
+    last_seen_at: { kind: "date" },
+    hospital: { kind: "text", max: LIMITS.hospital },
+    last_seen_place: { kind: "text", max: LIMITS.last_seen_place },
+    status: { kind: "enum", values: CHILD_STATUS, required: true },
+    direct_contact: { kind: "bool" },
+    info_source: { kind: "enum", values: CHILD_INFO_SOURCE },
+    info_source_detail: { kind: "text", max: LIMITS.info_source_detail },
+    notes: { kind: "text", max: LIMITS.notes },
+    photo_url: { kind: "text", max: LIMITS.photo_url },
     latitude: { kind: "coord" },
     longitude: { kind: "coord" },
   },

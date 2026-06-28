@@ -1,4 +1,4 @@
--- 0022 · ingest_reports admite la tabla unaccompanied_children
+-- 0024 · ingest_reports admite la tabla unaccompanied_children
 --
 -- El alta de un niño no acompañado (server action submitFoundChild) escribe por
 -- la MISMA RPC auditada que el resto de reportes, para que toda mutación de datos
@@ -62,4 +62,4 @@ $fn$;
 revoke execute on function ingest_reports(text, jsonb, uuid, text, text, text, text) from public;
 grant execute on function ingest_reports(text, jsonb, uuid, text, text, text, text) to service_role;
 
-insert into applied_migrations (version) values ('0022') on conflict do nothing;
+insert into applied_migrations (version) values ('0024') on conflict do nothing;

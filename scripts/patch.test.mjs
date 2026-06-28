@@ -118,3 +118,59 @@ test("MUTABLE_FIELDS expone el catálogo por type (sin campos privados crudos)",
   assert.ok(!MUTABLE_FIELDS.checkin.includes("phone_private"));
   assert.ok(!MUTABLE_FIELDS.checkin.includes("manage_token"));
 });
+
+// ── Niños no acompañados (unaccompanied_child) ──────────────────────────────
+test("unaccompanied_child: campos válidos mapean a la tabla unaccompanied_children", () => {
+  const r = buildPatch("unaccompanied_child", {
+    notes: "lo trasladaron",
+    hospital: "Hospital Central",
+    status: "IN_HOSPITAL",
+  });
+  assert.equal(r.ok, true);
+  assert.equal(r.table, "unaccompanied_children");
+  assert.equal(r.patch.notes, "lo trasladaron");
+  assert.equal(r.patch.hospital, "Hospital Central");
+  assert.equal(r.patch.status, "IN_HOSPITAL");
+});
+
+test("unaccompanied_child: enums inválidos (status/gender/info_source) → rechazo", () => {
+  assert.equal(buildPatch("unaccompanied_child", { status: "BOGUS" }).ok, false);
+  assert.equal(buildPatch("unaccompanied_child", { gender: "X" }).ok, false);
+  assert.equal(buildPatch("unaccompanied_child", { info_source: "OUIJA" }).ok, false);
+  // válidos pasan
+  assert.equal(buildPatch("unaccompanied_child", { gender: "GIRL" }).patch.gender, "GIRL");
+  assert.equal(buildPatch("unaccompanied_child", { status: "REUNITED" }).patch.status, "REUNITED");
+  assert.equal(buildPatch("unaccompanied_child", { info_source: "INSTITUTION" }).patch.info_source, "INSTITUTION");
+});
+
+test("unaccompanied_child: inmutables y campos de sistema → rechazo", () => {
+  for (const f of IMMUTABLE_FIELDS) {
+    assert.equal(buildPatch("unaccompanied_child", { [f]: "x", notes: "y" }).ok, false);
+  }
+  // manage_token / last_custody_at / dedup_key no están en el SPEC → no modificables
+  assert.equal(buildPatch("unaccompanied_child", { manage_token: "x" }).ok, false);
+  assert.equal(buildPatch("unaccompanied_child", { last_custody_at: "2026-01-01" }).ok, false);
+});
+
+test("unaccompanied_child: vaciar name (NOT NULL) → rechazo; opcionales se vacían a null", () => {
+  assert.equal(buildPatch("unaccompanied_child", { name: "  " }).ok, false);
+  assert.equal(buildPatch("unaccompanied_child", { notes: "   " }).patch.notes, null);
+});
+
+test("unaccompanied_child: fechas y coords se validan como en el resto", () => {
+  assert.equal(buildPatch("unaccompanied_child", { last_seen_at: "2026-06-26" }).ok, true);
+  assert.equal(buildPatch("unaccompanied_child", { found_at: "no-fecha" }).ok, false);
+  assert.equal(buildPatch("unaccompanied_child", { latitude: 10.5, longitude: -66.9 }).ok, true);
+  assert.equal(buildPatch("unaccompanied_child", { latitude: 10.5 }).ok, false); // coords pareadas
+  assert.equal(buildPatch("unaccompanied_child", { latitude: 48.8, longitude: 2.3 }).ok, false); // fuera del box VE
+});
+
+test("MUTABLE_FIELDS.unaccompanied_child expone los campos esperados (sin sistema)", () => {
+  const f = MUTABLE_FIELDS.unaccompanied_child;
+  for (const k of ["name", "status", "hospital", "notes", "gender", "last_seen_place"]) {
+    assert.ok(f.includes(k), `falta ${k}`);
+  }
+  assert.ok(!f.includes("manage_token"));
+  assert.ok(!f.includes("last_custody_at"));
+  assert.ok(!f.includes("dedup_key"));
+});

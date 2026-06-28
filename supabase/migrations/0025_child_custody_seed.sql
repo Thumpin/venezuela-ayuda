@@ -1,4 +1,4 @@
--- 0023 · El alta de un niño (UI o API) siembra su cadena de custodia igual
+-- 0025 · El alta de un niño (UI o API) siembra su cadena de custodia igual
 --
 -- submitFoundChild (UI) sembraba a mano el evento "Registro inicial" y estampaba
 -- last_custody_at/manage_token. El alta por la API pública (POST /api/v1/reports,
@@ -47,4 +47,4 @@ create trigger seed_child_custody_trg
   after insert on unaccompanied_children
   for each row execute function seed_child_custody();
 
-insert into applied_migrations (version) values ('0023') on conflict do nothing;
+insert into applied_migrations (version) values ('0025') on conflict do nothing;

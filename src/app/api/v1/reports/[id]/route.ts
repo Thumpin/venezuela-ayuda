@@ -39,6 +39,9 @@ const MAX_PATCH_BODY_BYTES = 64 * 1024; // un patch es UN objeto; 64KB sobra
 type Params = { params: Promise<{ id: string }> };
 type ReportTable = "checkins" | "help_requests" | "help_offers" | "damaged_reports";
 type ReportView = "public_checkins" | "public_help_requests" | "public_help_offers" | "public_damaged_reports";
+// El PATCH también resuelve niños no acompañados (vía RPC patch_child). NO entra en
+// RESOURCES (la lectura abierta por id sigue siendo de 4 tablas, protección infantil).
+type PatchTable = ReportTable | "unaccompanied_children";
 type ReportResource = {
   table: ReportTable;
   view: ReportView;
@@ -61,7 +64,7 @@ function projectPublic(table: string, row: Record<string, unknown>): Record<stri
 
 async function probeReportTable(
   svc: ReturnType<typeof getServerSupabase>,
-  table: ReportTable,
+  table: PatchTable,
   id: string,
 ) {
   switch (table) {
@@ -73,6 +76,8 @@ async function probeReportTable(
       return svc.from("help_offers").select("id").eq("id", id).maybeSingle();
     case "damaged_reports":
       return svc.from("damaged_reports").select("id").eq("id", id).maybeSingle();
+    case "unaccompanied_children":
+      return svc.from("unaccompanied_children").select("id").eq("id", id).maybeSingle();
   }
 }
 
@@ -197,13 +202,16 @@ export async function PATCH(req: Request, { params }: Params) {
   // una corrección upstream de un socio es legítima; la moderación es un flag
   // interno, no una razón para bloquear el fix. Se selecciona `id` (+ `status`
   // en checkins, que desambigua missing_person vs checkin).
+  // Probar las 4 tablas de reporte + unaccompanied_children (editable por API,
+  // pero fuera de la lectura abierta por id → no está en RESOURCES).
   const svc = getServerSupabase();
   const resources = RESOURCES as ReportResource[];
+  const probeTables: PatchTable[] = [...resources.map((r) => r.table), "unaccompanied_children"];
   const probes = await Promise.allSettled(
-    resources.map((r) => probeReportTable(svc, r.table, id))
+    probeTables.map((t) => probeReportTable(svc, t, id))
   );
 
-  let table: string | null = null;
+  let table: PatchTable | null = null;
   let resolvedType: string | null = null;
   for (let i = 0; i < probes.length; i++) {
     const out = probes[i];
@@ -211,13 +219,13 @@ export async function PATCH(req: Request, { params }: Params) {
       logError("report_probe_failed", out.status === "rejected" ? out.reason : out.value.error, {
         scope: "api.reports.id.PATCH",
         request_id: requestId,
-        table: RESOURCES[i].table,
+        table: probeTables[i],
       });
       return NextResponse.json(errorBody(SERVICE_UNAVAILABLE_MESSAGE, requestId), { status: 503, headers: rid });
     }
     const row = out.value.data as Record<string, unknown> | null;
     if (row) {
-      table = resources[i].table;
+      table = probeTables[i];
       resolvedType = typeForResource(table, row);
       break;
     }
@@ -243,17 +251,30 @@ export async function PATCH(req: Request, { params }: Params) {
     return NextResponse.json(errorBody(patch.error, requestId), { status: 400, headers: rid });
   }
 
+  // Niños no acompañados van por patch_child (UPDATE + auto-evento de custodia al
+  // cambiar status + bump de last_custody_at); el resto por el patch_report genérico.
   const meta = requestMeta(req, requestId);
-  const { data, error } = await svc.rpc("patch_report", {
-    p_table: table,
-    p_id: id,
-    p_patch: patch.patch as Json,
-    p_partner: partner.partnerId,
-    p_source: source,
-    p_request_id: meta.requestId,
-    p_ip: meta.ip ?? "",
-    p_user_agent: meta.userAgent ?? "",
-  });
+  const { data, error } =
+    table === "unaccompanied_children"
+      ? await svc.rpc("patch_child", {
+          p_id: id,
+          p_patch: patch.patch as Json,
+          p_partner: partner.partnerId,
+          p_source: source,
+          p_request_id: meta.requestId,
+          p_ip: meta.ip ?? "",
+          p_user_agent: meta.userAgent ?? "",
+        })
+      : await svc.rpc("patch_report", {
+          p_table: table,
+          p_id: id,
+          p_patch: patch.patch as Json,
+          p_partner: partner.partnerId,
+          p_source: source,
+          p_request_id: meta.requestId,
+          p_ip: meta.ip ?? "",
+          p_user_agent: meta.userAgent ?? "",
+        });
   if (error) {
     logError("report_patch_failed", error, { scope: "api.reports.id.PATCH", request_id: requestId, table });
     return NextResponse.json(errorBody(SERVICE_UNAVAILABLE_MESSAGE, requestId), { status: 503, headers: rid });

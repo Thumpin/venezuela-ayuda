@@ -1,4 +1,4 @@
--- 0021 · Registro de niños no acompañados encontrados + cadena de custodia
+-- 0023 · Registro de niños no acompañados encontrados + cadena de custodia
 --
 -- Registro de salvaguarda para niños/niñas encontrados solos tras la emergencia
 -- (issue #47). La idea NO es un buscador público de menores sino un registro con
@@ -134,4 +134,4 @@ revoke select on child_custody_events  from anon, authenticated;
 
 grant select on public_unaccompanied_children to anon, authenticated;
 
-insert into applied_migrations (version) values ('0021') on conflict do nothing;
+insert into applied_migrations (version) values ('0023') on conflict do nothing;

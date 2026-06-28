@@ -102,16 +102,18 @@ test("isUuid: acepta uuid v4 canónico, rechaza basura", () => {
   assert.equal(isUuid("550e8400-e29b-41d4-a716-44665544000"), false); // corto
 });
 
-test("TABLE_FOR_TYPE cubre los 5 types y rutea a 4 tablas", () => {
+test("TABLE_FOR_TYPE rutea cada type a su tabla (incluye unaccompanied_child)", () => {
   assert.equal(TABLE_FOR_TYPE.missing_person, "checkins");
   assert.equal(TABLE_FOR_TYPE.checkin, "checkins");
   assert.equal(TABLE_FOR_TYPE.help_request, "help_requests");
   assert.equal(TABLE_FOR_TYPE.help_offer, "help_offers");
   assert.equal(TABLE_FOR_TYPE.damaged_building, "damaged_reports");
+  assert.equal(TABLE_FOR_TYPE.unaccompanied_child, "unaccompanied_children");
 });
 
-test("RESOURCES lista las 4 tablas con su vista pública", () => {
+test("RESOURCES lista solo las 4 tablas (la lectura abierta por id NO incluye niños)", () => {
   assert.equal(RESOURCES.length, 4);
+  assert.ok(!RESOURCES.some((r) => r.table === "unaccompanied_children"));
   for (const r of RESOURCES) {
     assert.equal(VIEW_FOR_TABLE[r.table], r.view);
     assert.ok(Array.isArray(r.columns) && r.columns.includes("id"));
@@ -127,6 +129,7 @@ test("typeForResource: checkins se desambigua por status; resto es directo", () 
   assert.equal(typeForResource("help_requests", {}), "help_request");
   assert.equal(typeForResource("help_offers", {}), "help_offer");
   assert.equal(typeForResource("damaged_reports", {}), "damaged_building");
+  assert.equal(typeForResource("unaccompanied_children", {}), "unaccompanied_child");
 });
 
 test("parseSince: created_at|id (uuid), timestamp pelón, y basura", () => {

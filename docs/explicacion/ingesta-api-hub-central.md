@@ -407,6 +407,23 @@ Reglas:
 - Atómico con el audit: la modificación va por un RPC `patch_report` que hace
   `UPDATE` + insert al audit (before/after completos) en la misma transacción.
 
+**`unaccompanied_child` (protección infantil).** También es editable por API. Sus
+campos mutables son los del alta (menos identidad/origen). `status` es un campo
+plano, pero **cambiarlo dispara la cadena de custodia**: la edición va por un RPC
+dedicado `patch_child` que, si `status` cambia, agrega un evento append-only a
+`child_custody_events` derivado del nuevo estado (`event_date=last_seen_at`,
+`facility=hospital|last_seen_place`, `recorded_by`/`source` = el socio) y refresca
+`last_custody_at` — igual que el trigger de siembra del alta (§2.5). Si `status` no
+cambia, solo se aplican los campos y la cadena no se toca. La **respuesta se
+proyecta SOLO-NOMBRE** (`id`/`name`/`created_at`), nunca PII del menor.
+
+```
+PATCH /api/v1/reports/<id-niño>     (x-api-key requerido)
+{ "status": "IN_SHELTER", "notes": "trasladado al refugio X" }
+→ 200 { "report": { "type": "unaccompanied_child", "id": "…", "name": "…", "created_at": "…" } }
+  (+ nuevo evento en la cadena de custodia + last_custody_at refrescado)
+```
+
 | Código | Causa |
 |---|---|
 | 400 | id no-uuid, body inválido, campo inmutable/no-modificable, o valor inválido |

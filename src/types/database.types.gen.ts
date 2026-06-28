@@ -1347,6 +1347,18 @@ export type Database = {
         Returns: Json
       }
       longtransactionsenabled: { Args: never; Returns: boolean }
+      patch_child: {
+        Args: {
+          p_id: string
+          p_ip: string
+          p_partner: string
+          p_patch: Json
+          p_request_id: string
+          p_source: string
+          p_user_agent: string
+        }
+        Returns: Json
+      }
       patch_report: {
         Args: {
           p_id: string

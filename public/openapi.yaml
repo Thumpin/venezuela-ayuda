@@ -269,6 +269,12 @@ paths:
         A diferencia del POST (que clampa valores laxos a un default), el PATCH
         **rechaza** enums/coordenadas inválidos con 400 — una edición explícita
         con un dato inválido es un error del cliente, no algo que adivinar.
+
+        **`unaccompanied_child` (protección infantil):** también es editable por
+        API. `status` es un campo plano; al **cambiarlo** se agrega
+        automáticamente un evento a la cadena de custodia (append-only) y se
+        refresca `last_custody_at`. La respuesta se proyecta SOLO-NOMBRE
+        (id/name/created_at), nunca PII del menor.
       security:
         - ApiKeyAuth: []
       requestBody:
@@ -648,6 +654,7 @@ components:
         - $ref: "#/components/schemas/HelpRequestPatch"
         - $ref: "#/components/schemas/HelpOfferPatch"
         - $ref: "#/components/schemas/DamagedBuildingPatch"
+        - $ref: "#/components/schemas/UnaccompaniedChildPatch"
 
     CheckinsPatch:
       type: object
@@ -717,6 +724,42 @@ components:
         contact: { type: [string, "null"], maxLength: 30, description: "PRIVADO." }
         risk_level: { type: string, enum: [ROJO, AMARILLO, NINGUNA] }
         risk_priority: { type: boolean }
+      additionalProperties: false
+
+    UnaccompaniedChildPatch:
+      type: object
+      description: |
+        Campos mutables de un niño/a no acompañado. PROTECCIÓN INFANTIL: la
+        respuesta del PATCH se proyecta SOLO-NOMBRE (id/name/created_at), igual que
+        la lectura pública. Solo identidad/origen son inmutables (id/source/
+        external_id → 400).
+
+        **Cadena de custodia:** `status` es un campo plano. Cuando el PATCH
+        **cambia** `status`, se agrega automáticamente un evento a la cadena de
+        custodia (append-only) derivado del nuevo estado (event_date=last_seen_at,
+        facility=hospital|last_seen_place) y se refresca `last_custody_at`. Si
+        `status` no cambia, la cadena no se toca.
+      minProperties: 1
+      properties:
+        type: { type: string, const: unaccompanied_child }
+        name: { type: string, maxLength: 80, description: "ÚNICO campo público. NOT NULL — no se puede vaciar." }
+        reporter_name: { type: [string, "null"], maxLength: 80, description: "PRIVADO." }
+        age: { type: [string, "null"], maxLength: 40 }
+        gender: { type: string, enum: [BOY, GIRL, UNSPECIFIED] }
+        description: { type: [string, "null"], maxLength: 800, description: "PRIVADO." }
+        found_place: { type: [string, "null"], maxLength: 200, description: "PRIVADO." }
+        found_at: { type: string, format: date }
+        last_seen_at: { type: string, format: date }
+        hospital: { type: [string, "null"], maxLength: 120, description: "PRIVADO." }
+        last_seen_place: { type: [string, "null"], maxLength: 200, description: "PRIVADO." }
+        status: { type: string, enum: [ALONE_NO_FAMILY, ACCOMPANIED_SEEKING_FAMILY, IN_SHELTER, IN_HOSPITAL, REUNITED, WITH_NON_FAMILY], description: "Cambiarlo agrega un evento de custodia y refresca last_custody_at." }
+        direct_contact: { type: boolean }
+        info_source: { type: string, enum: [SOCIAL_MEDIA, FRIEND_FAMILY, INSTITUTION, EXISTING_LIST, OTHER] }
+        info_source_detail: { type: [string, "null"], maxLength: 200 }
+        notes: { type: [string, "null"], maxLength: 800, description: "PRIVADO." }
+        photo_url: { type: [string, "null"], maxLength: 500, description: "PRIVADO." }
+        latitude: { type: number, description: "PRIVADO. Requiere longitude; dentro del bounding box VE o 400." }
+        longitude: { type: number, description: "PRIVADO." }
       additionalProperties: false
 
     # ── Evento del audit trail (GET /reports/{id}/history) ──────────────────
