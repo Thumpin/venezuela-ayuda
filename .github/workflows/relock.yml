@@ -4,6 +4,9 @@ name: Relock (temporal)
 # subirlo como artefacto. Resuelve el desfase de @swc/helpers que solo aparece
 # en la resolución de npm en Linux. Se elimina una vez committeado el lock.
 on:
+  push:
+    branches:
+      - feat/ci-lint-typecheck-tests
   workflow_dispatch: {}
 
 permissions:
