@@ -14,6 +14,9 @@ on:
       - ".github/workflows/apply-migrations.yml"
   workflow_dispatch: {}
 
+permissions:
+  contents: read
+
 concurrency:
   # Per-branch group so a staging run never queues behind a main run.
   group: apply-migrations-${{ github.ref }}
