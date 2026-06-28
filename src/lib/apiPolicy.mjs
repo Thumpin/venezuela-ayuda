@@ -81,58 +81,7 @@ export const SECURITY_HEADERS = [
 // 'strict-dynamic' (requiere middleware) — ver PR de seguimiento. Aun así esta
 // CSP bloquea: scripts de dominios no listados, <base> hijack, object/embed,
 // clickjacking (frame-ancestors), y exfil a dominios fuera de connect-src.
-const CSP_DIRECTIVES = {
-  "default-src": ["'self'"],
-  "base-uri": ["'self'"],
-  "object-src": ["'none'"],
-  "frame-ancestors": ["'none'"],
-  "form-action": ["'self'"],
-  "script-src": [
-    "'self'",
-    "'unsafe-inline'",
-    "'wasm-unsafe-eval'",
-    "https://www.googletagmanager.com",
-    "https://*.google-analytics.com",
-    "https://cdn.jsdelivr.net",
-  ],
-  "style-src": ["'self'", "'unsafe-inline'"],
-  "img-src": [
-    "'self'",
-    "data:",
-    "blob:",
-    "https://*.supabase.co",
-    "https://*.tile.openstreetmap.org",
-    "https://api.maptiler.com",
-    "https://*.maptiler.com",
-    "https://www.google-analytics.com",
-  ],
-  "font-src": ["'self'", "data:", "https://cdn.jsdelivr.net"],
-  "worker-src": ["'self'", "blob:"],
-  "connect-src": [
-    "'self'",
-    "https://*.supabase.co",
-    "wss://*.supabase.co",
-    "https://nominatim.openstreetmap.org",
-    "https://*.tile.openstreetmap.org",
-    "https://api.maptiler.com",
-    "https://*.maptiler.com",
-    "https://www.googletagmanager.com",
-    "https://www.google-analytics.com",
-    "https://*.google-analytics.com",
-    "https://cdn.jsdelivr.net",
-  ],
-  "manifest-src": ["'self'"],
-  "media-src": ["'self'", "data:", "blob:"],
-};
-
-// Serializa las directivas a la cadena del header. `upgrade-insecure-requests`
-// va al final (directiva sin valor).
-export function contentSecurityPolicy() {
-  const body = Object.entries(CSP_DIRECTIVES)
-    .map(([k, v]) => `${k} ${v.join(" ")}`)
-    .join("; ");
-  return `${body}; upgrade-insecure-requests`;
-}
+export { contentSecurityPolicy } from "./csp.mjs";
 
 // Extra SÓLO para /api/*: el API no usa ninguna feature de browser, así que se
 // apagan todas (no se aplica al sitio para no romper el geolocation del picker).

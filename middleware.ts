@@ -1,6 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
-import { contentSecurityPolicy } from "./src/lib/apiPolicy.mjs";
+import { contentSecurityPolicy } from "./src/lib/csp.mjs";
 
 const CSP_KEY =
   process.env.CSP_REPORT_ONLY === "1"
