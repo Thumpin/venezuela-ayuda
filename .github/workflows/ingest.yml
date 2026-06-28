@@ -14,6 +14,7 @@ on:
   #   - cron: "0 * * * *" # cada hora — PAUSADO, reactivar deliberadamente
   workflow_dispatch: {} # solo manual desde la pestaña Actions
 
+# Least privilege: only checks out code and talks to the DB; no GitHub API use.
 permissions:
   contents: read
 

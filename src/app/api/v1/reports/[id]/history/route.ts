@@ -5,6 +5,7 @@ import { PUBLIC_CDN_CACHE } from "@/lib/httpCache";
 import { isUuid } from "@/lib/reports.mjs";
 import { projectHistory } from "@/lib/audit.mjs";
 import { SERVICE_UNAVAILABLE_MESSAGE } from "@/lib/apiPolicy.mjs";
+import { logError } from "@/lib/log.mjs";
 
 // GET /api/v1/reports/{id}/history — audit trail de un reporte.
 //
@@ -34,7 +35,7 @@ export async function GET(req: Request, { params }: Params) {
     return NextResponse.json({ error: "id inválido (se espera un uuid)." }, { status: 400 });
   }
 
-  const rl = rateLimit(await clientKey("reports:history"), { limit: 120, windowSec: 60 });
+  const rl = await rateLimit(await clientKey("reports:history"), { limit: 120, windowSec: 60 });
   if (!rl.ok) {
     return NextResponse.json(
       { error: "Demasiadas solicitudes." },
@@ -52,6 +53,10 @@ export async function GET(req: Request, { params }: Params) {
     .eq("resource_id", id)
     .order("seq", { ascending: true });
   if (error) {
+    logError("report_history_read_failed", error, {
+      scope: "api.reports.history.GET",
+      table: "audit_log",
+    });
     return NextResponse.json({ error: SERVICE_UNAVAILABLE_MESSAGE }, { status: 503 });
   }
 

@@ -501,4 +501,4 @@ Lectura: la vía recomendada es `GET /api/v1/reports` (entregable #4); el acceso
 directo a las vistas `public_*` por Supabase REST queda como alternativa. Ambas
 leen las mismas vistas, sin PII.
 
-Plan técnico completo: `docs/plans/2026-06-26-001-feat-data-exchange-api-plan.md`.
+Plan técnico completo: [docs/adr/0001-feat-data-exchange-api.md](../adr/0001-feat-data-exchange-api.md).

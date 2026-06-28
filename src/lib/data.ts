@@ -23,6 +23,7 @@ import {
 import type { HelpCity, HelpNeed } from "@/lib/helpAbroad";
 import { formatItems } from "@/lib/validation";
 import { parseCsv, norm } from "@/lib/csv";
+import { logWarn } from "@/lib/log.mjs";
 
 const VENEZUELA = "Venezuela";
 
@@ -40,7 +41,8 @@ export async function getCollectionCenters(
     .order("country", { ascending: true })
     .order("city", { ascending: true });
   if (country) query = query.eq("country", country);
-  const { data } = await query;
+  const { data, error } = await query;
+  if (error) logWarn("supabase_read_failed", { scope: "data.getCollectionCenters", view: "public_collection_centers" }, error);
   return (data ?? []) as PublicCollectionCenter[];
 }
 
@@ -116,7 +118,10 @@ export async function searchCheckins(params: {
   if (params.city) query = query.ilike("city", `%${escapeLike(params.city)}%`);
 
   const { data, error } = await query;
-  if (error) return [];
+  if (error) {
+    logWarn("supabase_read_failed", { scope: "data.searchCheckins", view: "public_checkins" }, error);
+    return [];
+  }
   return (data ?? []) as PublicCheckin[];
 }
 
@@ -142,7 +147,10 @@ export async function searchHelpRequests(params: {
   if (params.city) query = query.ilike("city", `%${escapeLike(params.city)}%`);
 
   const { data, error } = await query;
-  if (error) return [];
+  if (error) {
+    logWarn("supabase_read_failed", { scope: "data.searchHelpRequests", view: "public_help_requests" }, error);
+    return [];
+  }
   return (data ?? []) as PublicHelpRequest[];
 }
 
@@ -171,9 +179,13 @@ const loadHospitalRegistryRows = unstable_cache(
         cache: "no-store",
         signal: AbortSignal.timeout(8000),
       });
-      if (!res.ok) return [];
+      if (!res.ok) {
+        logWarn("external_fetch_failed", { scope: "data.hospitalRegistry", status: res.status });
+        return [];
+      }
       return parseCsv(await res.text());
-    } catch {
+    } catch (err) {
+      logWarn("external_fetch_failed", { scope: "data.hospitalRegistry" }, err);
       return [];
     }
   },
@@ -261,10 +273,14 @@ const fetchMissingPersonsItems = unstable_cache(
         cache: "no-store",
         signal: AbortSignal.timeout(8000),
       });
-      if (!res.ok) return [];
+      if (!res.ok) {
+        logWarn("external_fetch_failed", { scope: "data.missingPersonsApi", status: res.status });
+        return [];
+      }
       const data = (await res.json()) as { items?: unknown[] };
       return Array.isArray(data.items) ? data.items : [];
-    } catch {
+    } catch (err) {
+      logWarn("external_fetch_failed", { scope: "data.missingPersonsApi" }, err);
       return [];
     }
   },
@@ -329,7 +345,10 @@ export async function getMissingWithPhotos(params: {
     .range(offset, offset + limit - 1);
   if (params.city) query = query.ilike("city", `%${escapeLike(params.city)}%`);
   const { data, error } = await query;
-  if (error) return [];
+  if (error) {
+    logWarn("supabase_read_failed", { scope: "data.getMissingWithPhotos", view: "public_checkins" }, error);
+    return [];
+  }
   return (data ?? []) as PublicCheckin[];
 }
 
@@ -341,6 +360,7 @@ export async function getCheckin(id: string): Promise<PublicCheckin | null> {
     .select("*")
     .eq("id", id)
     .maybeSingle();
+  if (error) logWarn("supabase_read_failed", { scope: "data.getCheckin", view: "public_checkins" }, error);
   if (error || !data) return null;
   return data as PublicCheckin;
 }
@@ -385,22 +405,28 @@ export async function getMatchingRequests(params: {
     .limit(params.limit ?? 150);
   if (params.status === "OPEN" || params.status === "IN_PROGRESS")
     query = query.eq("status", params.status);
-  if (params.categories && params.categories.length)
-    query = query.in("category", params.categories);
+  if (params.categories && params.categories.length) {
+    const categories = params.categories.filter((c): c is HelpCategory => c in HELP_CATEGORIES);
+    if (categories.length) query = query.in("category", categories);
+  }
   if (params.city) query = query.ilike("city", `%${escapeLike(params.city)}%`);
 
   const { data, error } = await query;
-  if (error) return [];
+  if (error) {
+    logWarn("supabase_read_failed", { scope: "data.getMatchingRequests", view: "public_help_requests" }, error);
+    return [];
+  }
   const rows = (data ?? []) as MatchedRequest[];
 
   // How many volunteers already offered (so the list doesn't pile onto handled
   // needs). Count only — responder PII stays private to the requester.
   const ids = rows.map((r) => r.id);
   if (ids.length) {
-    const { data: resp } = await supabase
+    const { data: resp, error: respErr } = await supabase
       .from("request_responses")
       .select("request_id")
       .in("request_id", ids);
+    if (respErr) logWarn("supabase_read_failed", { scope: "data.getMatchingRequests.responseCounts", view: "request_responses" }, respErr);
     const counts = new Map<string, number>();
     for (const r of (resp ?? []) as { request_id: string }[])
       counts.set(r.request_id, (counts.get(r.request_id) ?? 0) + 1);
@@ -476,13 +502,14 @@ export async function getActiveNeeds(
       .limit(NEED_LIMIT);
     if (city) q = q.ilike("city", `%${escapeLike(city)}%`);
     tasks.push(
-      q.then(({ data }) =>
-        ((data ?? []) as CheckinLite[]).map((c) => ({
+      q.then(({ data, error }) => {
+        if (error) logWarn("supabase_read_failed", { scope: "data.getActiveNeeds.persona", view: "public_checkins" }, error);
+        return ((data ?? []) as CheckinLite[]).map((c) => ({
           kind: "persona" as const, id: c.id, title: c.name,
           subtitle: c.message ?? c.place_name ?? null, city: c.city,
           urgency: null, category: null, href: `/persona/${c.id}`, created_at: c.created_at,
-        })),
-      ),
+        }));
+      }),
     );
   }
 
@@ -496,13 +523,14 @@ export async function getActiveNeeds(
       .limit(NEED_LIMIT);
     if (city) q = q.ilike("city", `%${escapeLike(city)}%`);
     tasks.push(
-      q.then(({ data }) =>
-        ((data ?? []) as CheckinLite[]).map((c) => ({
+      q.then(({ data, error }) => {
+        if (error) logWarn("supabase_read_failed", { scope: "data.getActiveNeeds.desaparecido", view: "public_checkins" }, error);
+        return ((data ?? []) as CheckinLite[]).map((c) => ({
           kind: "desaparecido" as const, id: c.id, title: c.name,
           subtitle: c.city ? `Última ubicación: ${c.city}` : c.message ?? null, city: c.city,
           urgency: null, category: null, href: `/persona/${c.id}`, created_at: c.created_at,
-        })),
-      ),
+        }));
+      }),
     );
   }
 
@@ -545,6 +573,7 @@ export async function getHelpRequest(
     .select("*")
     .eq("id", id)
     .maybeSingle();
+  if (error) logWarn("supabase_read_failed", { scope: "data.getHelpRequest", view: "public_help_requests" }, error);
   if (error || !data) return null;
   return data as PublicHelpRequest;
 }
@@ -559,6 +588,7 @@ export async function getDamagedReport(
     .select("*")
     .eq("id", id)
     .maybeSingle();
+  if (error) logWarn("supabase_read_failed", { scope: "data.getDamagedReport", view: "public_damaged_reports" }, error);
   if (error || !data) return null;
   return data as PublicDamagedReport;
 }
@@ -568,7 +598,7 @@ export async function getDamagedReport(
 export async function getDamagedReportMarkers(): Promise<MapMarker[]> {
   if (!isSupabaseConfigured()) return [];
   const supabase = getServerSupabase();
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from("public_damaged_reports")
     .select(
       "id,place_name,description,severity,city,latitude,longitude,photo_url,status,created_at,verified_at,source",
@@ -577,6 +607,7 @@ export async function getDamagedReportMarkers(): Promise<MapMarker[]> {
     .neq("status", "RESOLVED")
     .order("created_at", { ascending: false })
     .limit(2000);
+  if (error) logWarn("supabase_read_failed", { scope: "data.getDamagedReportMarkers", view: "public_damaged_reports" }, error);
 
   return ((data ?? []) as PublicDamagedReport[]).map((r) => ({
     id: `dr_${r.id}`,
@@ -630,6 +661,14 @@ async function getMapMarkersUncached(): Promise<MapMarker[]> {
       .order("created_at", { ascending: false })
       .limit(2000),
   ]);
+
+  for (const [view, res] of [
+    ["public_checkins", checkins],
+    ["public_help_requests", requests],
+    ["public_help_offers", offers],
+  ] as const) {
+    if (res.error) logWarn("supabase_read_failed", { scope: "data.getMapMarkers", view }, res.error);
+  }
 
   const markers: MapMarker[] = [...externalMarkers];
 
@@ -735,6 +774,12 @@ async function getStatsUncached(): Promise<Stats> {
     // Damaged buildings now live entirely in the DB (Kobo + sheet snapshotted in).
     supabase.from("public_damaged_reports").select("id", count()).neq("status", "RESOLVED"),
   ]);
+  for (const res of [safe, missing, found, requests, helpers, damaged]) {
+    if (res.error) {
+      logWarn("supabase_read_failed", { scope: "data.getStats" }, res.error);
+      break; // un solo aviso por refresh; todas comparten la misma causa raíz
+    }
+  }
   return {
     safe: safe.count ?? 0,
     missing: missing.count ?? 0,
@@ -748,12 +793,13 @@ async function getStatsUncached(): Promise<Stats> {
 export async function listRequests(limit = 100): Promise<PublicHelpRequest[]> {
   if (!isSupabaseConfigured()) return [];
   const supabase = getServerSupabase();
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from("public_help_requests")
     .select("*")
     .neq("status", "RESOLVED")
     .order("created_at", { ascending: false })
     .limit(limit);
+  if (error) logWarn("supabase_read_failed", { scope: "data.listRequests", view: "public_help_requests" }, error);
   return (data ?? []) as PublicHelpRequest[];
 }
 

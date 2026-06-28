@@ -1,0 +1,29 @@
+name: CI
+
+# Ejecuta lint, typecheck y la suite de tests en cada PR. Los scripts ya viven en
+# package.json (`lint`, `test`) pero hasta ahora solo se corrían a mano. Este
+# workflow cierra el hueco: ningún PR mergea sin pasar estas validaciones.
+on:
+  pull_request:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci
+      - name: Lint
+        run: npm run lint
+      - name: Typecheck
+        run: npx tsc --noEmit
+      - name: Tests
+        run: npm test

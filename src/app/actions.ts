@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { getServerSupabase, isSupabaseConfigured } from "@/lib/supabase/server";
 import { rateLimit, clientKey } from "@/lib/rateLimit";
+import { stripImageMetadata } from "@/lib/stripExif.mjs";
 import {
   cleanText,
   cleanOptional,
@@ -24,6 +25,8 @@ import {
 import { computeRisk, type RiskAnswers } from "@/lib/risk";
 import { VA_SOURCE } from "@/lib/canonical.mjs";
 import { ingestArgs, patchArgs, buildCenterRow } from "@/lib/internalWrite.mjs";
+import { frIndexPerson } from "@/lib/fr";
+import { logError, logWarn } from "@/lib/log.mjs";
 import type { Sighting, RequestResponse } from "@/lib/types";
 
 export type ActionState = {
@@ -61,14 +64,22 @@ async function uploadCheckinPhoto(
   const ext = m[2] === "jpeg" ? "jpg" : m[2];
   const buffer = Buffer.from(m[3], "base64");
   if (buffer.byteLength < 100 || buffer.byteLength > 3_000_000) return null;
+  // Quita EXIF/GPS/metadatos antes de subir al bucket PÚBLICO (defensa en
+  // profundidad: el picker ya re-encoda, pero una subida directa no pasaría
+  // por ahí y podría filtrar la ubicación exacta de quien reporta).
+  const clean = stripImageMetadata(buffer, contentType);
   try {
     const path = `${id}.${ext}`;
     const { error } = await supabase.storage
       .from("checkin-photos")
-      .upload(path, buffer, { contentType, upsert: true });
-    if (error) return null;
+      .upload(path, clean, { contentType, upsert: true });
+    if (error) {
+      logWarn("photo_upload_failed", { scope: "actions.uploadCheckinPhoto" }, error);
+      return null;
+    }
     return supabase.storage.from("checkin-photos").getPublicUrl(path).data.publicUrl ?? null;
-  } catch {
+  } catch (err) {
+    logWarn("photo_upload_failed", { scope: "actions.uploadCheckinPhoto" }, err);
     return null;
   }
 }
@@ -81,7 +92,7 @@ export async function submitCheckin(
   if (!isSupabaseConfigured()) return notConfigured();
   if (isBot(form)) return { ok: true }; // silently drop
 
-  const limited = rateLimit(await clientKey("checkin"), { limit: 6, windowSec: 60 });
+  const limited = await rateLimit(await clientKey("checkin"), { limit: 6, windowSec: 60 });
   if (!limited.ok)
     return {
       ok: false,
@@ -131,7 +142,23 @@ export async function submitCheckin(
       ])
     );
     if (error) throw error;
-  } catch {
+
+    // Indexa la foto en el FR-API (asistivo, best-effort) para permitir dedup y
+    // conciliación por rostro entre plataformas. Nunca bloquea ni lanza, y no
+    // envía datos privados (el teléfono queda fuera).
+    if (photoUrl) {
+      await frIndexPerson({
+        externalId: id,
+        imageUrl: photoUrl,
+        name,
+        location:
+          cleanOptional(form.get("city"), LIMITS.city) ||
+          cleanOptional(form.get("place_name"), LIMITS.place_name) ||
+          null,
+      });
+    }
+  } catch (err) {
+    logError("checkin_submit_failed", err, { scope: "actions.submitCheckin" });
     return {
       ok: false,
       error: "No pudimos guardar tu información. Revisa tu conexión e intenta de nuevo.",
@@ -151,7 +178,7 @@ export async function submitHelpRequest(
   if (!isSupabaseConfigured()) return notConfigured();
   if (isBot(form)) return { ok: true };
 
-  const limited = rateLimit(await clientKey("request"), { limit: 8, windowSec: 60 });
+  const limited = await rateLimit(await clientKey("request"), { limit: 8, windowSec: 60 });
   if (!limited.ok)
     return { ok: false, error: `Demasiados envíos. Espera ${limited.retryAfterSec}s.` };
 
@@ -194,7 +221,8 @@ export async function submitHelpRequest(
       ])
     );
     if (error) throw error;
-  } catch {
+  } catch (err) {
+    logError("help_request_submit_failed", err, { scope: "actions.submitHelpRequest" });
     return {
       ok: false,
       error: "No pudimos enviar tu solicitud. Revisa tu conexión e intenta de nuevo.",
@@ -213,7 +241,7 @@ export async function submitDamagedReport(
   if (!isSupabaseConfigured()) return notConfigured();
   if (isBot(form)) return { ok: true };
 
-  const limited = rateLimit(await clientKey("damaged"), { limit: 8, windowSec: 60 });
+  const limited = await rateLimit(await clientKey("damaged"), { limit: 8, windowSec: 60 });
   if (!limited.ok)
     return { ok: false, error: `Demasiados envíos. Espera ${limited.retryAfterSec}s.` };
 
@@ -276,7 +304,8 @@ export async function submitDamagedReport(
       ])
     );
     if (error) throw error;
-  } catch {
+  } catch (err) {
+    logError("damaged_report_submit_failed", err, { scope: "actions.submitDamagedReport" });
     return {
       ok: false,
       error: "No pudimos enviar el reporte. Revisa tu conexión e intenta de nuevo.",
@@ -295,7 +324,7 @@ export async function submitHelpOffer(
   if (!isSupabaseConfigured()) return notConfigured();
   if (isBot(form)) return { ok: true };
 
-  const limited = rateLimit(await clientKey("offer"), { limit: 8, windowSec: 60 });
+  const limited = await rateLimit(await clientKey("offer"), { limit: 8, windowSec: 60 });
   if (!limited.ok)
     return { ok: false, error: `Demasiados envíos. Espera ${limited.retryAfterSec}s.` };
 
@@ -325,7 +354,8 @@ export async function submitHelpOffer(
       ])
     );
     if (error) throw error;
-  } catch {
+  } catch (err) {
+    logError("help_offer_submit_failed", err, { scope: "actions.submitHelpOffer" });
     return {
       ok: false,
       error: "No pudimos enviar tu oferta. Revisa tu conexión e intenta de nuevo.",
@@ -356,7 +386,11 @@ async function verifyManageToken(
     .select("manage_token")
     .eq("id", id)
     .maybeSingle();
-  if (error || !data) return false;
+  if (error) {
+    logWarn("manage_token_read_failed", { scope: "actions.verifyManageToken", table }, error);
+    return false;
+  }
+  if (!data) return false;
   return data.manage_token != null && data.manage_token === token;
 }
 
@@ -369,7 +403,7 @@ export async function markCheckinFound(
   found: boolean
 ): Promise<{ ok: boolean; error?: string }> {
   if (!isSupabaseConfigured()) return { ok: false, error: "Servicio no disponible." };
-  const limited = rateLimit(await clientKey("manage"), { limit: 20, windowSec: 60 });
+  const limited = await rateLimit(await clientKey("manage"), { limit: 20, windowSec: 60 });
   if (!limited.ok)
     return { ok: false, error: `Demasiados intentos. Espera ${limited.retryAfterSec}s.` };
   if (!UUID_RE.test(id) || !token) return { ok: false, error: "No autorizado." };
@@ -384,7 +418,8 @@ export async function markCheckinFound(
       })
     );
     if (error) throw error;
-  } catch {
+  } catch (err) {
+    logError("checkin_mark_found_failed", err, { scope: "actions.markCheckinFound" });
     return { ok: false, error: "No se pudo actualizar. Intenta de nuevo." };
   }
   revalidatePath("/mapa");
@@ -399,7 +434,7 @@ export async function resolveHelpRequest(
   resolved: boolean
 ): Promise<{ ok: boolean; error?: string }> {
   if (!isSupabaseConfigured()) return { ok: false, error: "Servicio no disponible." };
-  const limited = rateLimit(await clientKey("manage"), { limit: 20, windowSec: 60 });
+  const limited = await rateLimit(await clientKey("manage"), { limit: 20, windowSec: 60 });
   if (!limited.ok)
     return { ok: false, error: `Demasiados intentos. Espera ${limited.retryAfterSec}s.` };
   if (!UUID_RE.test(id) || !token) return { ok: false, error: "No autorizado." };
@@ -412,7 +447,8 @@ export async function resolveHelpRequest(
       patchArgs("help_requests", id, { status: resolved ? "RESOLVED" : "OPEN" })
     );
     if (error) throw error;
-  } catch {
+  } catch (err) {
+    logError("help_request_resolve_failed", err, { scope: "actions.resolveHelpRequest" });
     return { ok: false, error: "No se pudo actualizar. Intenta de nuevo." };
   }
   revalidatePath("/mapa");
@@ -427,7 +463,7 @@ export async function resolveDamagedReport(
   resolved: boolean
 ): Promise<{ ok: boolean; error?: string }> {
   if (!isSupabaseConfigured()) return { ok: false, error: "Servicio no disponible." };
-  const limited = rateLimit(await clientKey("manage"), { limit: 20, windowSec: 60 });
+  const limited = await rateLimit(await clientKey("manage"), { limit: 20, windowSec: 60 });
   if (!limited.ok)
     return { ok: false, error: `Demasiados intentos. Espera ${limited.retryAfterSec}s.` };
   if (!UUID_RE.test(id) || !token) return { ok: false, error: "No autorizado." };
@@ -440,7 +476,8 @@ export async function resolveDamagedReport(
       patchArgs("damaged_reports", id, { status: resolved ? "RESOLVED" : "OPEN" })
     );
     if (error) throw error;
-  } catch {
+  } catch (err) {
+    logError("damaged_report_resolve_failed", err, { scope: "actions.resolveDamagedReport" });
     return { ok: false, error: "No se pudo actualizar. Intenta de nuevo." };
   }
   revalidatePath("/mapa");
@@ -461,7 +498,7 @@ export async function submitSighting(
 ): Promise<{ ok: boolean; error?: string }> {
   if (!isSupabaseConfigured()) return { ok: false, error: "Servicio no disponible." };
   if (cleanText(website, 100)) return { ok: true }; // honeypot
-  const limited = rateLimit(await clientKey("sighting"), { limit: 10, windowSec: 60 });
+  const limited = await rateLimit(await clientKey("sighting"), { limit: 10, windowSec: 60 });
   if (!limited.ok) return { ok: false, error: `Espera ${limited.retryAfterSec}s.` };
   if (!UUID_RE.test(checkinId)) return { ok: false, error: "Solicitud inválida." };
 
@@ -474,11 +511,12 @@ export async function submitSighting(
     const supabase = getServerSupabase();
     // Relays only apply to reports created on this site (which have a manage
     // token). External reports point people to the original source instead.
-    const { data: c } = await supabase
+    const { data: c, error: cErr } = await supabase
       .from("checkins")
       .select("status, found_at, source")
       .eq("id", checkinId)
       .maybeSingle();
+    if (cErr) logWarn("sighting_probe_failed", { scope: "actions.submitSighting" }, cErr);
     if (!c || c.status !== "LOOKING_FOR_SOMEONE" || c.found_at || c.source)
       return { ok: false, error: "Este reporte no acepta avisos." };
 
@@ -489,7 +527,8 @@ export async function submitSighting(
       message: msg || null,
     });
     if (error) throw error;
-  } catch {
+  } catch (err) {
+    logError("sighting_submit_failed", err, { scope: "actions.submitSighting" });
     return { ok: false, error: "No se pudo enviar. Intenta de nuevo." };
   }
   return { ok: true };
@@ -504,11 +543,12 @@ export async function fetchSightings(
   if (!(await verifyManageToken("checkins", checkinId, token)))
     return { ok: false, error: "No autorizado." };
   const supabase = getServerSupabase();
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from("sightings")
     .select("id, finder_name, finder_contact, message, created_at")
     .eq("checkin_id", checkinId)
     .order("created_at", { ascending: false });
+  if (error) logWarn("sightings_read_failed", { scope: "actions.fetchSightings" }, error);
   return { ok: true, sightings: (data ?? []) as Sighting[] };
 }
 
@@ -524,7 +564,7 @@ export async function respondToRequest(
 ): Promise<{ ok: boolean; error?: string }> {
   if (!isSupabaseConfigured()) return { ok: false, error: "Servicio no disponible." };
   if (cleanText(website, 100)) return { ok: true }; // honeypot
-  const limited = rateLimit(await clientKey("respond"), { limit: 10, windowSec: 60 });
+  const limited = await rateLimit(await clientKey("respond"), { limit: 10, windowSec: 60 });
   if (!limited.ok) return { ok: false, error: `Espera ${limited.retryAfterSec}s.` };
   if (!UUID_RE.test(requestId)) return { ok: false, error: "Solicitud inválida." };
 
@@ -537,11 +577,12 @@ export async function respondToRequest(
     const supabase = getServerSupabase();
     // Relays only apply to requests created on this site (which have a manage
     // token). External/ingested requests point people to the original source.
-    const { data: r } = await supabase
+    const { data: r, error: rErr } = await supabase
       .from("help_requests")
       .select("status, source")
       .eq("id", requestId)
       .maybeSingle();
+    if (rErr) logWarn("response_probe_failed", { scope: "actions.respondToRequest" }, rErr);
     if (!r || r.status === "RESOLVED" || r.source)
       return { ok: false, error: "Esta solicitud no acepta respuestas." };
 
@@ -552,7 +593,8 @@ export async function respondToRequest(
       message: msg || null,
     });
     if (error) throw error;
-  } catch {
+  } catch (err) {
+    logError("response_submit_failed", err, { scope: "actions.respondToRequest" });
     return { ok: false, error: "No se pudo enviar. Intenta de nuevo." };
   }
   return { ok: true };
@@ -567,11 +609,12 @@ export async function fetchRequestResponses(
   if (!(await verifyManageToken("help_requests", requestId, token)))
     return { ok: false, error: "No autorizado." };
   const supabase = getServerSupabase();
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from("request_responses")
     .select("id, responder_name, responder_contact, message, created_at")
     .eq("request_id", requestId)
     .order("created_at", { ascending: false });
+  if (error) logWarn("responses_read_failed", { scope: "actions.fetchRequestResponses" }, error);
   return { ok: true, responses: (data ?? []) as RequestResponse[] };
 }
 
@@ -584,7 +627,7 @@ export async function submitCollectionCenter(
   if (!isSupabaseConfigured()) return notConfigured();
   if (isBot(form)) return { ok: true };
 
-  const limited = rateLimit(await clientKey("center"), { limit: 5, windowSec: 60 });
+  const limited = await rateLimit(await clientKey("center"), { limit: 5, windowSec: 60 });
   if (!limited.ok)
     return { ok: false, error: `Demasiados envíos. Espera ${limited.retryAfterSec}s.` };
 
@@ -632,7 +675,8 @@ export async function submitCollectionCenter(
       ])
     );
     if (error) throw error;
-  } catch {
+  } catch (err) {
+    logError("collection_center_submit_failed", err, { scope: "actions.submitCollectionCenter" });
     return {
       ok: false,
       error: "No pudimos enviar el centro. Revisa tu conexión e intenta de nuevo.",

@@ -46,3 +46,8 @@ next-env.d.ts
 
 # Local DB backups (contain PII — never commit)
 backups/
+
+# Alternate package-manager lockfiles — npm (package-lock.json) is canonical
+pnpm-lock.yaml
+yarn.lock
+bun.lockb

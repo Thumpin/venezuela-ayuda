@@ -111,7 +111,8 @@ export default function AdminLogin() {
             name="password"
             required
             autoComplete={isSignIn ? "current-password" : "new-password"}
-            placeholder={isSignIn ? "••••••••" : "Mínimo 8 caracteres"}
+            minLength={isSignIn ? undefined : 12}
+            placeholder={isSignIn ? "••••••••" : "Mínimo 12 caracteres"}
             className="w-full rounded-xl border border-[#e6ecf2] px-3.5 py-3 text-base text-[#14212e] outline-none transition focus:border-[#2563a8]"
           />
         </label>

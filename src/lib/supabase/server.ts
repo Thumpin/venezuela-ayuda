@@ -1,5 +1,7 @@
 import "server-only";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import type { Database } from "@/types/database.types.gen";
+import { logError, logWarn } from "@/lib/log.mjs";
 
 // Server-only Supabase client.
 //
@@ -20,7 +22,7 @@ const publicKey =
   process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-let cached: SupabaseClient | null = null;
+let cached: SupabaseClient<Database> | null = null;
 
 // True when a secret/service-role key is configured — writes bypass RLS and we
 // can read back inserted rows.
@@ -28,18 +30,33 @@ export function hasSecretKey(): boolean {
   return Boolean(secretKey);
 }
 
+// Una sola vez por proceso: si Supabase no está configurado, el app degrada en
+// silencio (reads → [], actions → notConfigured). Lo hacemos visible UNA vez —
+// `isSupabaseConfigured` se llama en casi cada read/action, así que loguear por
+// llamada inundaría los logs. En producción esto es un incidente real (falta
+// env) → error; en dev es modo degradado esperado → warn informativo.
+let warnedUnconfigured = false;
+
 export function isSupabaseConfigured(): boolean {
-  return Boolean(url && (secretKey || publicKey));
+  const configured = Boolean(url && (secretKey || publicKey));
+  if (!configured && !warnedUnconfigured) {
+    warnedUnconfigured = true;
+    const ctx = { scope: "supabase.server", env: process.env.NODE_ENV };
+    if (process.env.NODE_ENV === "production")
+      logError("supabase_not_configured", new Error("Supabase env vars missing"), ctx);
+    else logWarn("supabase_not_configured", ctx);
+  }
+  return configured;
 }
 
-export function getServerSupabase(): SupabaseClient {
+export function getServerSupabase(): SupabaseClient<Database> {
   if (!isSupabaseConfigured()) {
     throw new Error(
       "Supabase no está configurado. Define NEXT_PUBLIC_SUPABASE_URL y SUPABASE_SECRET_KEY (o NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY)."
     );
   }
   if (cached) return cached;
-  cached = createClient(url!, (secretKey || publicKey)!, {
+  cached = createClient<Database>(url!, (secretKey || publicKey)!, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
   return cached;

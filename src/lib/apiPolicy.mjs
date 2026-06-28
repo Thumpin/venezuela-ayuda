@@ -67,6 +67,73 @@ export const SECURITY_HEADERS = [
   { key: "X-Frame-Options", value: "SAMEORIGIN" },
 ];
 
+// ── Content-Security-Policy (sitio HTML) ─────────────────────────────────────
+// Defensa en profundidad contra XSS y exfiltración: aunque React escapa por
+// defecto y no usamos dangerouslySetInnerHTML, una CSP acota a dónde puede
+// cargar/enviar el browser. Las fuentes están ENUMERADAS a partir de lo que el
+// frontend usa de verdad (auditado):
+//   · Supabase: Storage (fotos) + REST/Realtime (wss)    → img/connect
+//   · MapLibre + OpenStreetMap raster + Nominatim         → img/connect; workers vía blob:
+//   · Google Analytics (gtag)                             → script/connect/img
+//   · Scalar API reference en /docs (jsdelivr)            → script/style/font/connect; wasm
+// NOTA: `script-src` incluye 'unsafe-inline' porque hay scripts inline (bootstrap
+// de Next + gtag). El siguiente paso de endurecimiento es CSP por NONCE con
+// 'strict-dynamic' (requiere middleware) — ver PR de seguimiento. Aun así esta
+// CSP bloquea: scripts de dominios no listados, <base> hijack, object/embed,
+// clickjacking (frame-ancestors), y exfil a dominios fuera de connect-src.
+const CSP_DIRECTIVES = {
+  "default-src": ["'self'"],
+  "base-uri": ["'self'"],
+  "object-src": ["'none'"],
+  "frame-ancestors": ["'none'"],
+  "form-action": ["'self'"],
+  "script-src": [
+    "'self'",
+    "'unsafe-inline'",
+    "'wasm-unsafe-eval'",
+    "https://www.googletagmanager.com",
+    "https://*.google-analytics.com",
+    "https://cdn.jsdelivr.net",
+  ],
+  "style-src": ["'self'", "'unsafe-inline'"],
+  "img-src": [
+    "'self'",
+    "data:",
+    "blob:",
+    "https://*.supabase.co",
+    "https://*.tile.openstreetmap.org",
+    "https://api.maptiler.com",
+    "https://*.maptiler.com",
+    "https://www.google-analytics.com",
+  ],
+  "font-src": ["'self'", "data:", "https://cdn.jsdelivr.net"],
+  "worker-src": ["'self'", "blob:"],
+  "connect-src": [
+    "'self'",
+    "https://*.supabase.co",
+    "wss://*.supabase.co",
+    "https://nominatim.openstreetmap.org",
+    "https://*.tile.openstreetmap.org",
+    "https://api.maptiler.com",
+    "https://*.maptiler.com",
+    "https://www.googletagmanager.com",
+    "https://www.google-analytics.com",
+    "https://*.google-analytics.com",
+    "https://cdn.jsdelivr.net",
+  ],
+  "manifest-src": ["'self'"],
+  "media-src": ["'self'", "data:", "blob:"],
+};
+
+// Serializa las directivas a la cadena del header. `upgrade-insecure-requests`
+// va al final (directiva sin valor).
+export function contentSecurityPolicy() {
+  const body = Object.entries(CSP_DIRECTIVES)
+    .map(([k, v]) => `${k} ${v.join(" ")}`)
+    .join("; ");
+  return `${body}; upgrade-insecure-requests`;
+}
+
 // Extra SÓLO para /api/*: el API no usa ninguna feature de browser, así que se
 // apagan todas (no se aplica al sitio para no romper el geolocation del picker).
 export const API_SECURITY_HEADERS = [

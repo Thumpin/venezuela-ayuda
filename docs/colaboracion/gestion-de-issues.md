@@ -25,9 +25,10 @@ un issue bien clasificado tiene **uno de cada**:
 | **Estado** | `status:{needs-triage,triaged,in-progress,blocked}` | Flujo de trabajo |
 | Especiales | `good first issue` · `help wanted` · `security` | Triager |
 
-> Los desplegables de área/severidad de las plantillas **no aplican la label solos** (su
-> valor va al cuerpo del issue); el triager la traduce a `area:*`/`priority:*`. Es un paso de
-> 5 segundos y mantiene el control humano.
+> Los desplegables de área/severidad de las plantillas quedan en el cuerpo del issue. El
+> workflow `Issue triage agent` los traduce automáticamente a `area:*`/`priority:*` cuando
+> puede hacerlo con seguridad. El control humano sigue siendo obligatorio: el bot no marca
+> `status:triaged`.
 
 ### Crear las labels en el repo
 
@@ -60,21 +61,40 @@ gh label create "status:blocked"      --repo $REPO --color b60205 --description 
 gh label create "security" --repo $REPO --color b60205 --description "Seguridad / privacidad" --force
 ```
 
+## ⚠️ Antes de empezar: reclamar el issue
+
+**Regla obligatoria: nadie empieza a trabajar en un issue sin haberlo reclamado primero.**
+
+Pasos:
+1. Comenta en el issue que lo estás tomando (`"Lo tomo, empiezo hoy"`).
+2. Asígnate el issue (botón **Assignees** en la barra lateral de GitHub).
+3. Cambia el label a **`status:in-progress`**.
+
+Solo entonces abre tu rama y empieza a programar.
+
+**¿Por qué?** Sin este paso, dos colaboradores pueden trabajar en paralelo sobre el mismo
+issue sin saberlo, generando conflictos, trabajo duplicado y PRs que se pisan entre sí.
+Este problema ocurrió en la práctica (issue #51) — de ahí esta regla.
+
+> Ver también [CONTRIBUTING.md](../../CONTRIBUTING.md) §"Punto de entrada: empieza por los
+> issues" para el flujo completo desde cero.
+
+---
+
 ## Ciclo de vida de un issue
 
 ```
 abierto (status:needs-triage)
    │  ── triage: tipo + area:* + priority:* ──▶  status:triaged
    │                                                │
-   │                          alguien lo toma ──▶  status:in-progress  ── PR ──▶  cerrado
+   │       reclamar (comentar + asignarse) ──▶  status:in-progress  ── PR ──▶  cerrado
    │                                                │
    │                          falta dependencia ──▶ status:blocked
    └─ inválido/duplicado ──▶ cerrado (invalid/duplicate)
 ```
 
 - **PRs cierran issues** con `Closes #N` en la descripción.
-- Comenta en el issue **antes** de empezar a trabajarlo (evita trabajo duplicado) y pásalo a
-  `status:in-progress` (o autoasígnate).
+- Reclamar el issue **antes** de empezar (ver sección de arriba) evita trabajo duplicado.
 
 ## Triage
 
@@ -88,6 +108,55 @@ abierto (status:needs-triage)
 - **Cadencia:** revisar la cola `status:needs-triage` con regularidad (p. ej. a diario en
   emergencia activa). Un issue no debería quedar sin triage más de ~24-48 h.
 - **p0 (crítico en prod):** notificar de inmediato al área y a un maintainer; no espera cola.
+
+### Issue triage agent
+
+El workflow [`.github/workflows/issue-triage.yml`](../../.github/workflows/issue-triage.yml)
+corre en `issues: opened`, `edited` y `reopened`, además de manualmente con
+`workflow_dispatch`.
+
+Qué hace:
+
+- Mantiene `status:needs-triage` si el issue no tiene ningún `status:*`.
+- Traduce el desplegable `Área` / `Área afectada` a `area:*`.
+- Traduce `Severidad` e `Impacto` a `priority:*`.
+- Añade `security` + `priority:p0` si detecta lenguaje de seguridad/PII en un issue público.
+- Respeta labels humanas existentes: si ya hay un `area:*` o `priority:*`, no lo pisa.
+
+Qué no hace:
+
+- No cambia `status:needs-triage` a `status:triaged`.
+- No asigna personas ni cierra issues.
+- No llama a LLMs ni envía contenido del issue a servicios externos.
+
+Nota operativa: los workflows de eventos de issues se ejecutan desde la rama default de
+GitHub. Este archivo se revisa por el flujo normal `staging`, pero empieza a clasificar issues
+en vivo cuando se promueve a `main`.
+
+#### Activarlo en el repo
+
+1. Mergear el cambio a `staging` y promover `staging -> main`. GitHub solo ejecuta eventos
+   `issues:*` desde la rama default.
+2. Confirmar que las labels de [`.github/labels.yml`](../../.github/labels.yml) existen en el
+   repo. Si faltan, correr **Actions -> Sync labels -> Run workflow** o crear labels con el
+   comando de la sección "Crear las labels en el repo".
+3. Abrir un issue de prueba con las plantillas para verificar que agrega `area:*` y `priority:*`
+   sin marcar `status:triaged`.
+4. Para issues ya existentes, correr **Actions -> Issue triage agent -> Run workflow** y pasar el
+   número del issue. El trigger automático solo cubre issues nuevos/editados/reabiertos después de
+   que el workflow esté en `main`.
+
+### GitHub Agents para ordenar issues
+
+Para una pasada asistida desde la pestaña **Agents** de GitHub, usa el prompt en
+[`docs/colaboracion/agents/organizar-issues-copilot.md`](./agents/organizar-issues-copilot.md).
+Ese prompt está pensado para organizar issues abiertos, proponer o aplicar labels y dejar
+comentarios breves sin cerrar issues ni exponer datos sensibles.
+
+Ese prompt no se ejecuta por estar guardado en el repo: se pega manualmente en una sesión de
+GitHub Agents, o se usa como base para una Copilot Automation solo si GitHub la tiene disponible
+para este repo. Para el flujo open source confiable, el disparador automático es el workflow
+`Issue triage agent`.
 
 ## Project board (Projects v2)
 

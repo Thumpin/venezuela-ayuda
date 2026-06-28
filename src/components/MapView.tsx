@@ -18,6 +18,7 @@ const KIND_META: Record<MarkerKind, { color: string; emoji: string }> = {
   damaged: { color: "#7f1d1d", emoji: "🏚️" },
 };
 const ALL_KINDS = Object.keys(KIND_META) as MarkerKind[];
+type GeoJsonPoint = { type: "Point"; coordinates: number[] };
 
 function toGeoJSON(markers: MapMarker[]) {
   return {
@@ -143,7 +144,7 @@ export default function MapView({
           const clusterId = f.properties?.cluster_id;
           const src = map.getSource("points") as GeoJSONSource;
           const zoom = await src.getClusterExpansionZoom(clusterId);
-          map.easeTo({ center: (f.geometry as GeoJSON.Point).coordinates as [number, number], zoom });
+          map.easeTo({ center: (f.geometry as GeoJsonPoint).coordinates as [number, number], zoom });
         });
 
         // Popup on point tap.
@@ -153,7 +154,7 @@ export default function MapView({
           const p = f.properties as Record<string, string>;
           const meta = KIND_META[p.kind as MarkerKind] ?? KIND_META.need;
           const kindLabel = t(`kind.${p.kind}`);
-          const coords = (f.geometry as GeoJSON.Point).coordinates.slice() as [number, number];
+          const coords = (f.geometry as GeoJsonPoint).coordinates.slice() as [number, number];
           const external = p.href?.startsWith("http");
           const linkLabel = p.linkLabel || (external ? t("popup.directions") : t("popup.detail"));
           const confidenceLabel = t("popup.confidence");

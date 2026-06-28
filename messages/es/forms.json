@@ -146,5 +146,14 @@
     "successTitle": "¡Gracias! Recibimos tu centro",
     "successMessage": "Lo revisaremos antes de publicarlo. Si es en Venezuela aparecerá en el mapa; si es internacional, en la lista de «Quiero ayudar fuera de Venezuela».",
     "backToList": "Volver a centros de acopio"
+  },
+  "fr": {
+    "checking": "Comparando con personas ya registradas…",
+    "maybeRegistered": "Creemos que esta persona ya podría estar registrada.",
+    "question": "¿Es la misma persona?",
+    "yes": "Sí, es la misma",
+    "no": "No, es otra persona",
+    "sameNote": "Para evitar reportes duplicados, revisa si ya existe el reporte de esta persona. Puedes continuar de todas formas.",
+    "assistiveNote": "Coincidencias por rostro — siempre requieren verificación humana."
   }
 }

@@ -90,15 +90,54 @@ docs/                      Handoffs, plans, and operator guidance
 - For migrations, update tests and docs when changing public views, private
   fields, partner auth, audit behavior, or API response shapes.
 
+## Observability / Logging
+
+Server failures must never be silent. Every `catch` and every error-swallow path
+(a Supabase read that returns `[]`/`null`, an external fetch that falls back) logs
+through the structured logger in `src/lib/log.mjs` before it degrades.
+
+- Helpers: `logError(event, err, context)`, `logWarn(event, context, err?)`,
+  `logInfo(event, context)`, `logDebug(event, context)`.
+- Levels: `error` (server failure an operator must see, e.g. a write/RPC failure)
+  → `console.error`; `warn` (graceful degradation: empty read, external API down,
+  fallback) → `console.warn`; `info` (low-volume lifecycle, NOT per-request) →
+  `console.log`; `debug` (diagnostics) → `console.debug`, **no-op unless**
+  `LOG_LEVEL=debug` (or `DEBUG` truthy) so production logs stay quiet.
+- Output is one JSON line per event (`{ level, event, message?, name?, code?,
+  digest?, ...context, ts }`) so Vercel parses it into queryable fields and a
+  future alert/log-drain can filter on `level`/`event`.
+- **No PII in logs.** Pass only `err` (the logger keeps just message/name/code/
+  digest) plus an allow-listed `context` (event, `scope`, `request_id`, view/
+  table, status, counts). Never pass request bodies, form fields, Supabase rows,
+  headers, IPs, `x-api-key`, phone/contact, or free text. `sanitizeContext`
+  drops denylisted keys as a safety net, but call sites must not rely on it.
+  Correlate with `request_id` (from `resolveRequestId`), never with the payload.
+- Client crashes: `src/app/error.tsx` forwards `message` + `digest` to
+  `POST /api/client-error` (`src/app/api/client-error/route.ts`), which logs
+  server-side — a browser `console.error` never reaches Vercel logs. This
+  round-trip is OFF by default and only runs when
+  `NEXT_PUBLIC_CLIENT_ERROR_LOGGING="true"` (both the client send and the route
+  honor the flag).
+- Expected control flow (auth denials, validation 400s, bad JSON) is NOT logged
+  as `error`; use `logDebug` or nothing so real failures stay visible.
+
+Alerting is not wired yet: logs are alert-ready. Wire later via a Vercel Log
+Drain → Logflare/Datadog/Sentry alerting on `level=error`, or add `@sentry/nextjs`
+(`src/app/api/.../instrumentation`). No logging dependency is added today.
+
 ## Review Checklist
 
 - Does the change preserve private-field redaction in UI, API, and audit history?
 - Does every write path keep source attribution and auditability?
 - Are new migrations forward-only and safe for both `staging` and `main`?
+- Does issue automation only add obvious first-pass labels and leave
+  `status:triaged`, assignment, and closing decisions to humans?
 - Are public docs clear that reports are community coordination signals, not
   official government or structural-safety certification?
 - Did you run the narrowest useful test plus `npm run lint` or `npm run build`
   when touching application code?
+- Does every new server `catch` or error-swallow path log via `logError`/
+  `logWarn` (from `src/lib/log.mjs`) with no PII in the event or context?
 
 ## Git
 

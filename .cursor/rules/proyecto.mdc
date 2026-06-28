@@ -1,0 +1,20 @@
+---
+description: Reglas del proyecto venezuela-ayuda — apunta a AGENTS.md (fuente única de verdad)
+alwaysApply: true
+---
+
+# Reglas del proyecto
+
+La fuente única de verdad para agentes de IA es **`AGENTS.md`** en la raíz del repo
+(compartida con Claude Code, Copilot y Codex). **Lee y sigue `AGENTS.md`.**
+
+Recordatorio de lo crítico (el detalle está en `AGENTS.md`):
+
+- App **Next.js en producción** para una emergencia; maneja **PII real** → máxima cautela.
+- Verifica antes de terminar: `npm run lint`, `npm run build`, `npm test` deben pasar.
+- **Nunca:** commitear secretos/`.env*`, exponer PII, borrar un test porque falla, push
+  directo a `main`/`staging`, saltarte CI (`--no-verify`), migraciones destructivas en sitio.
+- **Pregunta antes de:** `supabase/migrations/`, `src/lib/fr.ts`, `src/app/admin/`, deps, config.
+- Cambios pequeños y enfocados, por PR contra `staging`. Un humano revisa y es responsable.
+
+No dupliques reglas en este archivo: edita `AGENTS.md`.

@@ -54,6 +54,9 @@
 /scripts/apply-migrations.sh        @mawmawmaw/equipo-db @mawmawmaw/maintainers
 /scripts/check-migrations.mjs       @mawmawmaw/equipo-db @mawmawmaw/maintainers
 
+# ── Documentación ────────────────────────────────────────────────────────────
+/docs/                              @mawmawmaw/maintainers
+
 # ── CI / Infra (alto riesgo: despliegue) ──────────────────────────────────────
 /.github/                           @mawmawmaw/maintainers
 /.github/workflows/                 @mawmawmaw/maintainers

@@ -17,6 +17,8 @@ import {
   safeDbError,
   SERVICE_UNAVAILABLE_MESSAGE,
 } from "@/lib/apiPolicy.mjs";
+import type { Json } from "@/types/database.types.gen";
+import { logError, logDebug } from "@/lib/log.mjs";
 
 // Recurso único `reports` del hub central (v1).
 //
@@ -43,7 +45,7 @@ const MAX_BODY_BYTES = 512 * 1024; // req.json() bufferea todo el body antes del
 
 export async function GET(req: Request) {
   // Rate-limit best-effort por IP (lectura abierta; el límite blunt-ea abuso).
-  const rl = rateLimit(await clientKey("reports"), { limit: 120, windowSec: 60 });
+  const rl = await rateLimit(await clientKey("reports"), { limit: 120, windowSec: 60 });
   if (!rl.ok) {
     return NextResponse.json(
       { error: "Demasiadas solicitudes." },
@@ -94,6 +96,7 @@ export async function GET(req: Request) {
 
   const { data, error } = await query;
   if (error) {
+    logError("reports_read_failed", error, { scope: "api.reports.GET", view: resolved.view });
     return NextResponse.json({ error: SERVICE_UNAVAILABLE_MESSAGE }, { status: 503 });
   }
 
@@ -125,7 +128,8 @@ export async function POST(req: Request) {
   let partner: { partnerId: string; source: string; scopes: string[] } | null;
   try {
     partner = await authenticatePartner(req.headers.get("x-api-key"));
-  } catch {
+  } catch (err) {
+    logError("partner_auth_failed", err, { scope: "api.reports.POST", request_id: requestId });
     return NextResponse.json(errorBody(SERVICE_UNAVAILABLE_MESSAGE, requestId), { status: 503, headers: rid });
   }
   if (!partner) {
@@ -137,7 +141,7 @@ export async function POST(req: Request) {
   const source = partner.source;
 
   // Rate-limit best-effort por socio (por-lambda; el tope de batch es el backstop real).
-  const rl = rateLimit(`reports:write:${source}`, { limit: 120, windowSec: 60 });
+  const rl = await rateLimit(`reports:write:${source}`, { limit: 120, windowSec: 60 });
   if (!rl.ok) {
     return NextResponse.json(
       errorBody("Demasiadas solicitudes.", requestId),
@@ -161,7 +165,11 @@ export async function POST(req: Request) {
   let reports: unknown;
   try {
     reports = ((await req.json()) as { reports?: unknown })?.reports;
-  } catch {
+  } catch (err) {
+    // Body malformado = error del cliente (400, no silencioso). Sólo en debug
+    // para no dar amplificación de logs a requests basura.
+    logDebug("reports_bad_json", { scope: "api.reports.POST", request_id: requestId });
+    void err;
     return NextResponse.json(errorBody("Cuerpo JSON inválido.", requestId), { status: 400, headers: rid });
   }
   if (!Array.isArray(reports)) {
@@ -197,12 +205,12 @@ export async function POST(req: Request) {
     tables.map((t) =>
       svc.rpc("ingest_reports", {
         p_table: t,
-        p_rows: [...byTable[t].values()],
+        p_rows: [...byTable[t].values()] as Json,
         p_partner: partner!.partnerId,
         p_source: source,
         p_request_id: meta.requestId,
-        p_ip: meta.ip,
-        p_user_agent: meta.userAgent,
+        p_ip: meta.ip ?? "",
+        p_user_agent: meta.userAgent ?? "",
       })
     )
   );
@@ -214,13 +222,21 @@ export async function POST(req: Request) {
     const outcome = outcomes[i];
     // Error de DB → mensaje GENÉRICO. El texto crudo de Postgres (constraint,
     // SQLSTATE, fragmentos de query) jamás llega al cliente (safeDbError).
-    const dbError =
+    const rawDbError =
       outcome.status === "rejected"
-        ? safeDbError(outcome.reason)
+        ? outcome.reason
         : outcome.value.error
-          ? safeDbError(outcome.value.error)
+          ? outcome.value.error
           : null;
+    const dbError = rawDbError ? safeDbError(rawDbError) : null;
     if (dbError) {
+      // El cliente sólo ve el mensaje genérico (safeDbError); el crudo va al log
+      // server-side para que un fallo de escritura sea visible al operador.
+      logError("reports_write_failed", rawDbError, {
+        scope: "api.reports.POST",
+        request_id: requestId,
+        table: t,
+      });
       dbErrors++;
       for (const row of rows) results.push({ external_id: (row.external_id as string) ?? null, status: "error", error: dbError });
     } else {

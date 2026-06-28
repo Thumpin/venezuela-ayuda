@@ -47,8 +47,12 @@ async function downscale(file: File): Promise<string> {
 
 export default function PhotoInput({
   label,
+  onPhoto,
 }: {
   label?: string;
+  // Notifica al formulario el data URL elegido (o null al quitarlo). Lo usa el
+  // anti-duplicado por rostro al registrar a una persona.
+  onPhoto?: (dataUrl: string | null) => void;
 }) {
   const t = useTranslations("forms.photo");
   const [preview, setPreview] = useState<string>("");
@@ -65,9 +69,11 @@ export default function PhotoInput({
     try {
       const dataUrl = await downscale(file);
       setPreview(dataUrl);
+      onPhoto?.(dataUrl);
     } catch {
       setError(t("processError"));
       setPreview("");
+      onPhoto?.(null);
     } finally {
       setBusy(false);
     }
@@ -77,6 +83,7 @@ export default function PhotoInput({
     setPreview("");
     setError(null);
     if (fileRef.current) fileRef.current.value = "";
+    onPhoto?.(null);
   }
 
   return (

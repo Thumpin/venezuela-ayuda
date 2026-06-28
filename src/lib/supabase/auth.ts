@@ -1,6 +1,7 @@
 import "server-only";
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
+import type { Database } from "@/types/database.types.gen";
 
 // Cookie-backed Supabase client for ADMIN auth sessions (uses the publishable
 // key, like any browser auth). Public visitors never touch this — only the
@@ -12,7 +13,7 @@ const key =
 
 export async function getAuthClient() {
   const cookieStore = await cookies();
-  return createServerClient(url!, key!, {
+  return createServerClient<Database>(url!, key!, {
     cookies: {
       getAll() {
         return cookieStore.getAll();

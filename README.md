@@ -109,11 +109,36 @@ next-intl **sin routing** — el idioma se elige por cookie (`NEXT_LOCALE`, defa
 npm install
 # crea .env.local con NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
 # y SUPABASE_SECRET_KEY (opcional: OPENAI_API_KEY, NEXT_PUBLIC_GA_ID, etc.)
+supabase start  # API local en http://127.0.0.1:54331, DB en 127.0.0.1:54332
 npm run dev      # http://localhost:3000
 npm run lint
 npm run build
 node --test scripts/dedup-lib.test.mjs
 ```
+
+### Tipos de Supabase
+
+`src/types/database.types.gen.ts` es un archivo **generado por Supabase CLI**. No
+se edita a mano: la fuente de verdad del esquema son las migraciones en
+`supabase/migrations/` y la base de datos que introspecta el CLI. El archivo se
+commitea para que TypeScript funcione después de clonar el repo.
+
+Después de crear o cambiar migraciones, regenera los tipos:
+
+```bash
+# Contra la base local levantada con `supabase start`.
+npm run types:dev
+
+# Contra un proyecto ya linkeado con `supabase link`.
+npm run types:linked
+
+# Contra un proyecto hosted sin guardar el ref en el repo.
+SUPABASE_PROJECT_ID=xxxxxxxxxxxxxxxxxxxx npm run types:prod
+```
+
+Si `types:dev` falla con `supabase/config.toml not found`, ejecuta
+`supabase init` una vez. Si falla porque los puertos `54321`-`54324` están en uso,
+este repo ya trae `supabase/config.toml` configurado para usar `54331`-`54334`.
 
 ### Migraciones y backups
 

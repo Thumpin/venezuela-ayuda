@@ -17,6 +17,8 @@ import {
   errorBody,
   SERVICE_UNAVAILABLE_MESSAGE,
 } from "@/lib/apiPolicy.mjs";
+import type { Json } from "@/types/database.types.gen";
+import { logError, logDebug } from "@/lib/log.mjs";
 
 // /api/v1/reports/{id} — un reporte por su id global (uuid).
 //
@@ -35,6 +37,13 @@ export const maxDuration = 30;
 const MAX_PATCH_BODY_BYTES = 64 * 1024; // un patch es UN objeto; 64KB sobra
 
 type Params = { params: Promise<{ id: string }> };
+type ReportTable = "checkins" | "help_requests" | "help_offers" | "damaged_reports";
+type ReportView = "public_checkins" | "public_help_requests" | "public_help_offers" | "public_damaged_reports";
+type ReportResource = {
+  table: ReportTable;
+  view: ReportView;
+  columns: string[];
+};
 
 // Proyecta una fila CRUDA (con PII) a sus columnas públicas + `type`. Whitelist
 // por VIEW_COLUMNS → phone_private/contact/manage_token nunca salen.
@@ -50,13 +59,48 @@ function projectPublic(table: string, row: Record<string, unknown>): Record<stri
   return out;
 }
 
+async function probeReportTable(
+  svc: ReturnType<typeof getServerSupabase>,
+  table: ReportTable,
+  id: string,
+) {
+  switch (table) {
+    case "checkins":
+      return svc.from("checkins").select("id,status").eq("id", id).maybeSingle();
+    case "help_requests":
+      return svc.from("help_requests").select("id").eq("id", id).maybeSingle();
+    case "help_offers":
+      return svc.from("help_offers").select("id").eq("id", id).maybeSingle();
+    case "damaged_reports":
+      return svc.from("damaged_reports").select("id").eq("id", id).maybeSingle();
+  }
+}
+
+async function probeReportView(
+  svc: ReturnType<typeof getServerSupabase>,
+  resource: ReportResource,
+  id: string,
+) {
+  const select = resource.columns.join(",");
+  switch (resource.view) {
+    case "public_checkins":
+      return svc.from("public_checkins").select(select).eq("id", id).maybeSingle();
+    case "public_help_requests":
+      return svc.from("public_help_requests").select(select).eq("id", id).maybeSingle();
+    case "public_help_offers":
+      return svc.from("public_help_offers").select(select).eq("id", id).maybeSingle();
+    case "public_damaged_reports":
+      return svc.from("public_damaged_reports").select(select).eq("id", id).maybeSingle();
+  }
+}
+
 export async function GET(req: Request, { params }: Params) {
   const { id } = await params;
   if (!isUuid(id)) {
     return NextResponse.json({ error: "id inválido (se espera un uuid)." }, { status: 400 });
   }
 
-  const rl = rateLimit(await clientKey("reports:item"), { limit: 120, windowSec: 60 });
+  const rl = await rateLimit(await clientKey("reports:item"), { limit: 120, windowSec: 60 });
   if (!rl.ok) {
     return NextResponse.json(
       { error: "Demasiadas solicitudes." },
@@ -67,23 +111,24 @@ export async function GET(req: Request, { params }: Params) {
   // Probar las 4 vistas públicas en paralelo (id es PK). La vista filtra hidden
   // y omite PII por construcción. Primera que devuelve fila → ese es el reporte.
   const svc = getServerSupabase();
+  const resources = RESOURCES as ReportResource[];
   const lookups = await Promise.allSettled(
-    RESOURCES.map((r) =>
-      svc.from(r.view).select((r.columns as string[]).join(",")).eq("id", id).maybeSingle()
-    )
+    resources.map((r) => probeReportView(svc, r, id))
   );
 
   for (let i = 0; i < lookups.length; i++) {
     const out = lookups[i];
     if (out.status === "rejected") {
+      logError("report_lookup_failed", out.reason, { scope: "api.reports.id.GET", view: RESOURCES[i].view });
       return NextResponse.json({ error: SERVICE_UNAVAILABLE_MESSAGE }, { status: 503 });
     }
     if (out.value.error) {
+      logError("report_lookup_failed", out.value.error, { scope: "api.reports.id.GET", view: RESOURCES[i].view });
       return NextResponse.json({ error: SERVICE_UNAVAILABLE_MESSAGE }, { status: 503 });
     }
     const row = out.value.data as Record<string, unknown> | null;
     if (row) {
-      const table = RESOURCES[i].table;
+      const table = resources[i].table;
       return NextResponse.json(
         { report: { type: typeForResource(table, row), ...row } },
         { headers: { "Cache-Control": PUBLIC_CDN_CACHE } }
@@ -107,7 +152,8 @@ export async function PATCH(req: Request, { params }: Params) {
   let partner: { partnerId: string; source: string; scopes: string[] } | null;
   try {
     partner = await authenticatePartner(req.headers.get("x-api-key"));
-  } catch {
+  } catch (err) {
+    logError("partner_auth_failed", err, { scope: "api.reports.id.PATCH", request_id: requestId });
     return NextResponse.json(errorBody(SERVICE_UNAVAILABLE_MESSAGE, requestId), { status: 503, headers: rid });
   }
   if (!partner) {
@@ -118,7 +164,7 @@ export async function PATCH(req: Request, { params }: Params) {
   }
   const source = partner.source;
 
-  const rl = rateLimit(`reports:write:${source}`, { limit: 120, windowSec: 60 });
+  const rl = await rateLimit(`reports:write:${source}`, { limit: 120, windowSec: 60 });
   if (!rl.ok) {
     return NextResponse.json(
       errorBody("Demasiadas solicitudes.", requestId),
@@ -137,7 +183,9 @@ export async function PATCH(req: Request, { params }: Params) {
   let body: unknown;
   try {
     body = await req.json();
-  } catch {
+  } catch (err) {
+    logDebug("report_patch_bad_json", { scope: "api.reports.id.PATCH", request_id: requestId });
+    void err;
     return NextResponse.json(errorBody("Cuerpo JSON inválido.", requestId), { status: 400, headers: rid });
   }
   if (!body || typeof body !== "object" || Array.isArray(body)) {
@@ -150,10 +198,9 @@ export async function PATCH(req: Request, { params }: Params) {
   // interno, no una razón para bloquear el fix. Se selecciona `id` (+ `status`
   // en checkins, que desambigua missing_person vs checkin).
   const svc = getServerSupabase();
+  const resources = RESOURCES as ReportResource[];
   const probes = await Promise.allSettled(
-    RESOURCES.map((r) =>
-      svc.from(r.table).select(r.table === "checkins" ? "id,status" : "id").eq("id", id).maybeSingle()
-    )
+    resources.map((r) => probeReportTable(svc, r.table, id))
   );
 
   let table: string | null = null;
@@ -161,11 +208,16 @@ export async function PATCH(req: Request, { params }: Params) {
   for (let i = 0; i < probes.length; i++) {
     const out = probes[i];
     if (out.status === "rejected" || out.value.error) {
+      logError("report_probe_failed", out.status === "rejected" ? out.reason : out.value.error, {
+        scope: "api.reports.id.PATCH",
+        request_id: requestId,
+        table: RESOURCES[i].table,
+      });
       return NextResponse.json(errorBody(SERVICE_UNAVAILABLE_MESSAGE, requestId), { status: 503, headers: rid });
     }
     const row = out.value.data as Record<string, unknown> | null;
     if (row) {
-      table = RESOURCES[i].table;
+      table = resources[i].table;
       resolvedType = typeForResource(table, row);
       break;
     }
@@ -195,14 +247,15 @@ export async function PATCH(req: Request, { params }: Params) {
   const { data, error } = await svc.rpc("patch_report", {
     p_table: table,
     p_id: id,
-    p_patch: patch.patch,
+    p_patch: patch.patch as Json,
     p_partner: partner.partnerId,
     p_source: source,
     p_request_id: meta.requestId,
-    p_ip: meta.ip,
-    p_user_agent: meta.userAgent,
+    p_ip: meta.ip ?? "",
+    p_user_agent: meta.userAgent ?? "",
   });
   if (error) {
+    logError("report_patch_failed", error, { scope: "api.reports.id.PATCH", request_id: requestId, table });
     return NextResponse.json(errorBody(SERVICE_UNAVAILABLE_MESSAGE, requestId), { status: 503, headers: rid });
   }
   // RPC devuelve null si la fila desapareció entre el probe y el update (carrera).

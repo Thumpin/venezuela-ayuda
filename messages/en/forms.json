@@ -146,5 +146,14 @@
     "successTitle": "Thank you! We received your center",
     "successMessage": "We'll review it before publishing. If it's in Venezuela it will appear on the map; if international, in the 'I want to help outside Venezuela' list.",
     "backToList": "Back to collection centers"
+  },
+  "fr": {
+    "checking": "Comparing with people already registered…",
+    "maybeRegistered": "We think this person may already be registered.",
+    "question": "Is it the same person?",
+    "yes": "Yes, it's the same",
+    "no": "No, it's someone else",
+    "sameNote": "To avoid duplicate reports, check whether a report for this person already exists. You can continue anyway.",
+    "assistiveNote": "Face matches — always require human verification."
   }
 }

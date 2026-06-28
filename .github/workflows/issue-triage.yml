@@ -1,0 +1,84 @@
+name: Issue triage agent
+
+# Deterministic first-pass triage for public issues.
+# The issue templates already apply type + status:needs-triage. This workflow
+# fills in the mechanical labels that GitHub issue forms leave in the body:
+# area:* and priority:*. It never marks an issue status:triaged; humans own that.
+#
+# Note: issue-triggered workflows run from the repo default branch. This file can
+# be reviewed through staging, but it starts triaging live issues only after the
+# normal staging -> main promotion.
+
+on:
+  issues:
+    types: [opened, edited, reopened]
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: "Issue number to classify"
+        required: true
+        type: number
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: issue-triage-${{ github.event.issue.number || inputs.issue_number }}
+  cancel-in-progress: false
+
+jobs:
+  triage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Build manual event payload
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          ISSUE_NUMBER: ${{ inputs.issue_number }}
+        run: |
+          gh api "repos/$GH_REPO/issues/$ISSUE_NUMBER" > "$RUNNER_TEMP/issue.json"
+          node -e '
+            const fs = require("node:fs");
+            const issue = JSON.parse(fs.readFileSync(`${process.env.RUNNER_TEMP}/issue.json`, "utf8"));
+            fs.writeFileSync(`${process.env.RUNNER_TEMP}/issue-event.json`, JSON.stringify({ issue }, null, 2));
+          '
+
+      - name: Classify issue
+        id: triage
+        env:
+          EVENT_PATH: ${{ github.event_name == 'workflow_dispatch' && format('{0}/issue-event.json', runner.temp) || github.event_path }}
+        run: node scripts/issue-triage.mjs "$EVENT_PATH"
+
+      - name: Apply inferred labels
+        if: ${{ steps.triage.outputs.labels != '[]' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          ISSUE_NUMBER: ${{ github.event.issue.number || inputs.issue_number }}
+          LABELS_JSON: ${{ steps.triage.outputs.labels }}
+        run: |
+          node -e 'for (const label of JSON.parse(process.env.LABELS_JSON)) console.log(label)' |
+          while IFS= read -r label; do
+            gh issue edit "$ISSUE_NUMBER" --repo "$GH_REPO" --add-label "$label"
+          done
+
+      - name: Summarize
+        env:
+          LABELS_JSON: ${{ steps.triage.outputs.labels }}
+        run: |
+          {
+            echo "### Issue triage agent"
+            echo
+            echo "Inferred labels: \`$LABELS_JSON\`"
+            echo
+            echo "The workflow leaves final \`status:triaged\` decisions to human triagers."
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -11,6 +11,19 @@ import SubmitButton from "@/components/SubmitButton";
 
 const initial: ActionState = { ok: false };
 
+type FrCandidate = {
+  person_name?: string | null;
+  image_url?: string | null;
+  last_seen_location?: string | null;
+  score?: number;
+  band?: string;
+  source?: string;
+};
+
+function pct(s?: number) {
+  return Math.round((s || 0) * 100);
+}
+
 export default function CheckinForm({
   initialStatus,
 }: {
@@ -23,6 +36,35 @@ export default function CheckinForm({
   const tc = useTranslations("forms.checkin");
   const tCommon = useTranslations("common");
   const tD = useTranslations("domain");
+
+  // Anti-duplicado por rostro (asistivo): al elegir la foto de una persona
+  // desaparecida, comparamos con las ya registradas y avisamos. Nunca bloquea.
+  const tFr = useTranslations("forms.fr");
+  const [frChecking, setFrChecking] = useState(false);
+  const [frCands, setFrCands] = useState<FrCandidate[] | null>(null);
+  const [frAnswer, setFrAnswer] = useState<null | "same" | "other">(null);
+
+  async function onPhoto(dataUrl: string | null) {
+    setFrCands(null);
+    setFrAnswer(null);
+    if (!dataUrl || !isMissing) return;
+    setFrChecking(true);
+    try {
+      const r = await fetch("/api/fr/check-duplicate", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ photo: dataUrl }),
+      });
+      const d = await r.json();
+      if (d?.possible_duplicate && Array.isArray(d.candidates) && d.candidates.length) {
+        setFrCands(d.candidates.slice(0, 4));
+      }
+    } catch {
+      /* asistivo: si falla, el registro continúa normal */
+    } finally {
+      setFrChecking(false);
+    }
+  }
 
   return (
     <form action={action} className="space-y-5">
@@ -141,7 +183,63 @@ export default function CheckinForm({
       <div>
         <PhotoInput
           label={isMissing ? tc("missingPhotoLabel") : tc("photoLabel")}
+          onPhoto={isMissing ? onPhoto : undefined}
         />
+
+        {frChecking && (
+          <p className="mt-2 text-sm text-[#5b6b7b]">{tFr("checking")}</p>
+        )}
+
+        {frCands && frAnswer !== "other" && (
+          <div className="mt-3 rounded-xl border border-[#e2603a] bg-[#fdf0e9] p-4">
+            <p className="font-semibold text-[#c0512c]">{tFr("maybeRegistered")}</p>
+            <ul className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+              {frCands.map((c, i) => (
+                <li key={i} className="rounded-lg border border-[#f0c9bb] bg-white p-2">
+                  {c.image_url ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={c.image_url}
+                      alt=""
+                      className="h-20 w-full rounded-md object-cover"
+                    />
+                  ) : (
+                    <div className="h-20 w-full rounded-md bg-slate-100" />
+                  )}
+                  <p className="mt-1 truncate text-xs font-medium text-[#14212e]" title={c.person_name ?? ""}>
+                    {c.person_name || "—"}
+                  </p>
+                  <p className="text-[11px] text-[#5b6b7b]">
+                    {pct(c.score)}% · {c.source || ""}
+                  </p>
+                </li>
+              ))}
+            </ul>
+
+            {frAnswer === "same" ? (
+              <p className="mt-3 text-sm text-[#c0512c]">{tFr("sameNote")}</p>
+            ) : (
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <span className="text-sm font-medium text-[#14212e]">{tFr("question")}</span>
+                <button
+                  type="button"
+                  onClick={() => setFrAnswer("same")}
+                  className="rounded-lg border border-[#e2603a] px-3 py-1.5 text-sm font-semibold text-[#c0512c] active:scale-[0.99]"
+                >
+                  {tFr("yes")}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setFrAnswer("other")}
+                  className="rounded-lg bg-[#2563a8] px-3 py-1.5 text-sm font-semibold text-white active:scale-[0.99]"
+                >
+                  {tFr("no")}
+                </button>
+              </div>
+            )}
+            <p className="mt-2 text-[11px] text-[#8190a0]">{tFr("assistiveNote")}</p>
+          </div>
+        )}
       </div>
 
       <div>

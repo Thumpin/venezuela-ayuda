@@ -145,6 +145,12 @@ export default async function AdminPage({
             {isSuper && (
               <>
                 <Link
+                  href="/admin/reconocimiento"
+                  className="rounded-lg border border-[#e6ecf2] px-3 py-2 text-sm font-medium text-[#14212e] transition hover:bg-slate-50"
+                >
+                  Reconocimiento
+                </Link>
+                <Link
                   href="/admin/ingesta"
                   className="rounded-lg border border-[#e6ecf2] px-3 py-2 text-sm font-medium text-[#14212e] transition hover:bg-slate-50"
                 >

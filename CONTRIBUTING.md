@@ -27,6 +27,9 @@ Lee esto una vez antes de tu primer PR. Toma 5 minutos y te ahorra rebotes.
    y espera el triage.
 4. **Una vez asignado**, sigue el [flujo de trabajo](#flujo-de-trabajo-issue--staging--qa--main).
 
+El `Issue triage agent` puede poner labels mecánicas (`area:*`, `priority:*`, `security`),
+pero **no reemplaza al triager humano**: espera `status:triaged` antes de empezar.
+
 > ¿Por qué? Con muchos colaboradores, el issue es lo que coordina quién hace qué, evita
 > trabajo duplicado y deja decidir **antes** de invertir esfuerzo. Un PR sin issue asignado
 > probablemente se cierre pidiendo que pases por aquí primero.
@@ -56,6 +59,20 @@ npm run lint
 npm run build
 node --test            # tests de lógica pura (.mjs)
 ```
+
+### Gestor de paquetes
+
+**npm es el estándar del repo.** El lockfile versionado es `package-lock.json` y
+es el que usan CI y Vercel — manténlo en sync.
+
+Puedes usar **otro gestor en local** (pnpm, yarn, bun) para tu desarrollo: sus
+lockfiles (`pnpm-lock.yaml`, `yarn.lock`, `bun.lockb`) están en `.gitignore`, así
+que no se suben. Reglas para no romper el lockfile canónico:
+
+- **No** subas un lockfile que no sea `package-lock.json`.
+- **No** agregues el campo `packageManager` a `package.json`.
+- Si **agregas o cambias dependencias**, corre `npm install` y commitea el
+  `package-lock.json` actualizado junto con el cambio en `package.json`.
 
 ## Flujo de trabajo (issue → staging → QA → main)
 

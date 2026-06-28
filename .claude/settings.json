@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "_comment": "Guardrails DUROS para Claude Code (a diferencia de AGENTS.md, que es consultivo). 'deny' bloquea siempre; 'ask' exige confirmación humana. Ajusta a tu flujo. Doc: docs/colaboracion/harness-ia.md",
+  "permissions": {
+    "deny": [
+      "Read(./.env)",
+      "Read(./.env.*)",
+      "Read(./**/.env*)",
+      "Read(./**/*.pem)",
+      "Read(./**/*.key)",
+      "Bash(rm -rf*)",
+      "Bash(git push --force*)",
+      "Bash(git push -f*)",
+      "Bash(*--no-verify*)",
+      "Bash(supabase db reset*)"
+    ],
+    "ask": [
+      "Bash(git push*)",
+      "Bash(npm publish*)",
+      "Bash(npx supabase*)",
+      "Bash(psql*)",
+      "Edit(./supabase/migrations/**)",
+      "Edit(./src/lib/fr.ts)",
+      "Edit(./src/app/admin/**)",
+      "Edit(./.github/workflows/**)",
+      "WebFetch"
+    ]
+  }
+}

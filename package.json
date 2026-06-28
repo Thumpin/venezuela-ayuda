@@ -2,13 +2,15 @@
   "name": "venezuela-ayuda",
   "version": "0.1.0",
   "private": true,
-  "packageManager": "pnpm@11.7.0",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "node --test scripts/*.test.mjs"
+    "test": "node --test scripts/*.test.mjs",
+    "types:dev": "supabase gen types typescript --local --schema public > ./src/types/database.types.gen.ts",
+    "types:prod": "supabase gen types typescript --project-id \"$SUPABASE_PROJECT_ID\" --schema public > ./src/types/database.types.gen.ts",
+    "types:linked": "supabase gen types typescript --linked --schema public > ./src/types/database.types.gen.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.0",

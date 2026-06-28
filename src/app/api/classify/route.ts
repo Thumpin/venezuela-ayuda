@@ -3,6 +3,7 @@ import OpenAI from "openai";
 import { rateLimit, clientKey } from "@/lib/rateLimit";
 import { classifyHeuristic, type Classification } from "@/lib/classifyHeuristic";
 import { HELP_CATEGORIES, URGENCY_LEVELS } from "@/lib/constants";
+import { logWarn, logDebug } from "@/lib/log.mjs";
 
 export const runtime = "nodejs";
 export const maxDuration = 15;
@@ -41,7 +42,7 @@ function sanitize(input: unknown, fallback: Classification): Classification {
 }
 
 export async function POST(req: Request) {
-  const limited = rateLimit(await clientKey("classify"), { limit: 20, windowSec: 60 });
+  const limited = await rateLimit(await clientKey("classify"), { limit: 20, windowSec: 60 });
   if (!limited.ok) {
     return NextResponse.json(
       { error: "Demasiadas solicitudes." },
@@ -54,6 +55,8 @@ export async function POST(req: Request) {
     const body = await req.json();
     text = String(body?.text ?? "").slice(0, 1000).trim();
   } catch {
+    // El texto libre puede contener PII → jamás se loguea; sólo el evento.
+    logDebug("classify_bad_json", { scope: "api.classify.POST" });
     return NextResponse.json({ error: "Cuerpo inválido." }, { status: 400 });
   }
   if (text.length < 4) {
@@ -83,8 +86,10 @@ export async function POST(req: Request) {
     );
     const raw = completion.choices[0]?.message?.content ?? "{}";
     return NextResponse.json(sanitize(JSON.parse(raw), fallback));
-  } catch {
-    // Any failure (timeout, quota, network) → graceful fallback.
+  } catch (err) {
+    // Any failure (timeout, quota, network) → graceful fallback. Se degrada sin
+    // PII (el `text` del usuario nunca entra al log), pero queda traza del fallo.
+    logWarn("classify_openai_fallback", { scope: "api.classify.POST" }, err);
     return NextResponse.json(fallback);
   }
 }
