@@ -20,12 +20,7 @@ jobs:
         with:
           node-version: "22"
           cache: npm
-      # --no-optional: el lock fija @swc/helpers 0.5.15 (lo que pina next),
-      # pero next-intl arrastra @swc/core con un peer OPCIONAL >=0.5.17. En el
-      # runner de Linux ese choque hace que `npm ci` exija 0.5.23 y falle.
-      # Como es un peer opcional, omitir las opcionales lo evita sin perder
-      # reproducibilidad de las deps reales. Ver #36.
-      - run: npm ci --no-optional
+      - run: npm ci
       - name: Lint
         run: npm run lint
       - name: Typecheck
