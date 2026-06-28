@@ -1,0 +1,76 @@
+name: Triage issue labels
+
+# Aplica automáticamente labels de área y prioridad al abrir/editar un issue,
+# leyendo los valores de los dropdowns del formulario de la plantilla.
+#
+# NUNCA marca status:triaged — eso es decisión humana.
+# NUNCA elimina labels existentes — solo agrega los que faltan.
+# Sin LLMs ni servicios externos: solo parseo determinista del cuerpo del issue.
+on:
+  issues:
+    types: [opened, edited, reopened]
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: "Número del issue a triagear"
+        required: true
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  triage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Apply area and priority labels
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { pathToFileURL } = require("url");
+            const { extractLabels } = await import(
+              pathToFileURL(`${process.env.GITHUB_WORKSPACE}/scripts/triage-labels.mjs`).href
+            );
+
+            const issueNumber =
+              context.payload.issue?.number ??
+              parseInt(context.payload.inputs?.issue_number);
+
+            if (!issueNumber) {
+              core.warning("No issue number found, skipping.");
+              return;
+            }
+
+            const { data: issue } = await github.rest.issues.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+            });
+
+            const toAdd = extractLabels(issue.body ?? "");
+            if (!toAdd.length) {
+              core.info("No labels to add.");
+              return;
+            }
+
+            // Only add what isn't already there
+            const existing = new Set(issue.labels.map((l) => l.name));
+            const missing = toAdd.filter((l) => !existing.has(l));
+            if (!missing.length) {
+              core.info("Labels already present, nothing to do.");
+              return;
+            }
+
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+              labels: missing,
+            });
+
+            core.info(`Added: ${missing.join(", ")}`);
