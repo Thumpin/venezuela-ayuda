@@ -1,0 +1,26 @@
+version: 2
+updates:
+  # npm — Next.js app and scripts
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    groups:
+      # Batch minor/patch bumps so they don't flood the queue
+      non-major:
+        applies-to: version-updates
+        update-types: ["minor", "patch"]
+    ignore:
+      # Major version bumps need manual review
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+
+  # GitHub Actions — keep action versions current
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5

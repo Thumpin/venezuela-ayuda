@@ -14,6 +14,8 @@ on:
   #   - cron: "0 * * * *" # cada hora — PAUSADO, reactivar deliberadamente
   workflow_dispatch: {} # solo manual desde la pestaña Actions
 
+permissions: {}  # no GITHUB_TOKEN access needed — uses repository secrets only
+
 concurrency:
   group: dedup
   cancel-in-progress: false

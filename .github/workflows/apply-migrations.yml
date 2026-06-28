@@ -14,6 +14,8 @@ on:
       - ".github/workflows/apply-migrations.yml"
   workflow_dispatch: {}
 
+permissions: {}  # no GITHUB_TOKEN access needed — uses repository secrets only
+
 concurrency:
   # Per-branch group so a staging run never queues behind a main run.
   group: apply-migrations-${{ github.ref }}

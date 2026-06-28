@@ -11,6 +11,8 @@ on:
   pull_request:
   workflow_dispatch: {}
 
+permissions: {}  # no GITHUB_TOKEN access needed — uses repository secrets only
+
 jobs:
   check:
     runs-on: ubuntu-latest
