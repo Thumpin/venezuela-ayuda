@@ -202,6 +202,38 @@ export interface PublicSupplyItem {
   state: "needed" | "sufficient" | "unavailable" | null;
 }
 
+// ── Supply signal review queue (#80 #81) ────────────────────────────────────
+
+export type SignalReviewStatus =
+  | "pending"
+  | "promoted"
+  | "dismissed"
+  | "needs_verification"
+  | "flagged_duplicate";
+
+export type SignalSourceType =
+  | "confirmed_poc"
+  | "verified_partner"
+  | "public"
+  | "anonymous"
+  | "social";
+
+export interface PublicSupplySignal {
+  id: string;
+  hospital_id: string | null;
+  category: SupplyCategory | null;
+  reported_status: SupplyStatus | null;
+  source_platform: string | null;
+  source_type: SignalSourceType;
+  capture_timestamp: string | null;
+  review_status: SignalReviewStatus;
+  expires_at: string | null;
+  created_at: string;
+  hospital_name: string | null;
+  hospital_state: string | null;
+  hospital_city: string | null;
+}
+
 // ── Hospital POCs (issue #78) ────────────────────────────────────────────────
 
 export type PocRole = "reporter" | "verifier" | "admin";
