@@ -3,6 +3,7 @@ import Link from "next/link";
 import { getTranslations } from "next-intl/server";
 import Header from "@/components/Header";
 import { getMissingWithPhotos } from "@/lib/data";
+import { signedPhotoUrls } from "@/lib/storage";
 
 export const revalidate = 60;
 
@@ -30,6 +31,8 @@ export default async function Page({
     limit: PAGE_SIZE,
     offset,
   });
+
+  const photoUrls = await signedPhotoUrls(people.map((p) => p.photo_url));
 
   // Build a querystring that preserves the active city filter.
   const qs = (targetPage: number) => {
@@ -81,7 +84,7 @@ export default async function Page({
           </div>
         ) : (
           <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
-            {people.map((p) => (
+            {people.map((p, i) => (
               <Link
                 key={p.id}
                 href={`/persona/${p.id}`}
@@ -89,7 +92,7 @@ export default async function Page({
               >
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
-                  src={p.photo_url ?? undefined}
+                  src={photoUrls[i] ?? undefined}
                   alt=""
                   className="aspect-square w-full rounded-xl object-cover"
                 />

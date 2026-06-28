@@ -9,6 +9,7 @@ import ManageControls from "@/components/ManageControls";
 import RiskResult from "@/components/RiskResult";
 import GuideInvitePopup from "@/components/GuideInvitePopup";
 import { getDamagedReport } from "@/lib/data";
+import { signedPhotoUrl } from "@/lib/storage";
 import { fullDate, timeAgo } from "@/lib/format";
 import { siteUrl } from "@/lib/share";
 import { DAMAGE_SEVERITY, REQUEST_STATUSES } from "@/lib/constants";
@@ -44,6 +45,7 @@ export default async function Page({
   const severity = DAMAGE_SEVERITY[r.severity];
   const url = siteUrl(`/edificio/${r.id}`);
   const shareText = `🏚️ Reporte de edificio dañado en Venezuela Ayuda`;
+  const photoSrc = await signedPhotoUrl(r.photo_url);
 
   return (
     <>
@@ -96,10 +98,10 @@ export default async function Page({
             />
           )}
 
-          {r.photo_url && (
+          {photoSrc && (
             // eslint-disable-next-line @next/next/no-img-element
             <img
-              src={r.photo_url}
+              src={photoSrc}
               alt=""
               className="mt-4 max-h-80 w-full rounded-xl object-cover ring-1 ring-slate-200"
             />

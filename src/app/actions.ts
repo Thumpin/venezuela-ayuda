@@ -67,7 +67,7 @@ async function uploadCheckinPhoto(
       .from("checkin-photos")
       .upload(path, buffer, { contentType, upsert: true });
     if (error) return null;
-    return supabase.storage.from("checkin-photos").getPublicUrl(path).data.publicUrl ?? null;
+    return path;
   } catch {
     return null;
   }

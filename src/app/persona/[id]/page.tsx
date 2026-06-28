@@ -11,6 +11,7 @@ import GuideInvitePopup from "@/components/GuideInvitePopup";
 import SightingForm from "@/components/SightingForm";
 import SightingsInbox from "@/components/SightingsInbox";
 import { getCheckin } from "@/lib/data";
+import { signedPhotoUrl } from "@/lib/storage";
 import { fullDate, timeAgo } from "@/lib/format";
 import { siteUrl } from "@/lib/share";
 import { CHECKIN_STATUSES, FOUND_BADGE } from "@/lib/constants";
@@ -50,6 +51,7 @@ export default async function Page({
   const url = siteUrl(`/persona/${c.id}`);
   const statusLabel = tD(`checkinStatus.${c.status}`);
   const shareText = `${c.name} se reportó como "${statusLabel}" en Venezuela Ayuda.`;
+  const photoSrc = await signedPhotoUrl(c.photo_url);
 
   return (
     <>
@@ -84,10 +86,10 @@ export default async function Page({
             )}
           </div>
 
-          {c.photo_url && (
+          {photoSrc && (
             /* eslint-disable-next-line @next/next/no-img-element */
             <img
-              src={c.photo_url}
+              src={photoSrc}
               alt={tr("person.photoAlt", { name: c.name })}
               className="mt-4 max-h-80 w-full rounded-xl object-cover ring-1 ring-slate-200"
             />
