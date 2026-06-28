@@ -1,3 +1,4 @@
+import "server-only";
 import { getServerSupabase, isSupabaseConfigured } from "@/lib/supabase/server";
 
 const BUCKET = "checkin-photos";
@@ -31,7 +32,7 @@ export async function signedPhotoUrls(
     .from(BUCKET)
     .createSignedUrls(toSign, SIGNED_URL_TTL);
   if (error || !data) return paths.map(() => null);
-  const signed = new Map(data.map((d) => [d.path, d.signedUrl ?? null]));
+  const signed = new Map(data.map((d): [string, string | null] => [d.path, d.signedUrl ?? null]));
   return paths.map((p) => {
     if (!p) return null;
     if (p.startsWith("http")) return p;
