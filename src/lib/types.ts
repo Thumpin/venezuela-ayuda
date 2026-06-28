@@ -171,4 +171,5 @@ export interface MapMarker {
   linkLabel?: string; // overrides the popup link text (e.g. "Ver fuente →")
   approx?: boolean; // location is approximate (geocoded by area)
   color?: string; // overrides the kind color for this pin (e.g. by severity)
+  city?: string; // used by the map city filter
 }

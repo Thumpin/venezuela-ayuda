@@ -17,5 +17,9 @@
   "title": "🗺️ Help map",
   "wantToHelp": "🤝 I want to help",
   "askForHelp": "🆘 Ask for help",
-  "hint": "Tap a point to see details. Use the filters to show or hide categories."
+  "hint": "Tap a point to see details. Use the filters to show or hide categories.",
+  "cityFilter": {
+    "label": "City",
+    "all": "All of Venezuela"
+  }
 }

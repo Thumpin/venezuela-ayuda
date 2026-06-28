@@ -57,10 +57,22 @@ export default function MapView({
   const mapRef = useRef<MLMap | null>(null);
   const [ready, setReady] = useState(false);
   const [active, setActive] = useState<Set<MarkerKind>>(new Set(ALL_KINDS));
+  const [selectedCity, setSelectedCity] = useState("");
+
+  const cities = useMemo(() => {
+    const set = new Set<string>();
+    for (const m of markers) {
+      if (m.city) set.add(m.city);
+    }
+    return [...set].sort((a, b) => a.localeCompare(b, "es"));
+  }, [markers]);
 
   const filtered = useMemo(
-    () => markers.filter((m) => active.has(m.kind)),
-    [markers, active]
+    () =>
+      markers.filter(
+        (m) => active.has(m.kind) && (!selectedCity || m.city === selectedCity),
+      ),
+    [markers, active, selectedCity],
   );
 
   // One-time map init.
@@ -219,7 +231,7 @@ export default function MapView({
   return (
     <div className="flex flex-col">
       {/* Filters */}
-      <div className="flex flex-wrap gap-2 px-4 py-3">
+      <div className="flex flex-wrap items-center gap-2 px-4 py-3">
         {ALL_KINDS.map((k) => {
           const on = active.has(k);
           const m = KIND_META[k];
@@ -238,6 +250,24 @@ export default function MapView({
             </button>
           );
         })}
+        {cities.length > 0 && (
+          <label className="inline-flex items-center gap-1.5">
+            <span className="sr-only">{t("cityFilter.label")}</span>
+            <select
+              value={selectedCity}
+              onChange={(e) => setSelectedCity(e.target.value)}
+              aria-label={t("cityFilter.label")}
+              className="rounded-full border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:rounded-full"
+            >
+              <option value="">{t("cityFilter.all")}</option>
+              {cities.map((city) => (
+                <option key={city} value={city}>
+                  {city}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
       </div>
 
       <div className="relative">

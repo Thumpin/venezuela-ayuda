@@ -594,6 +594,7 @@ export async function getDamagedReportMarkers(): Promise<MapMarker[]> {
         : "Reporte de la comunidad (sin verificar)",
     href: `/edificio/${r.id}`,
     color: DAMAGE_SEVERITY[r.severity]?.color, // pin colored by severity
+    city: r.city ?? undefined,
   }));
 }
 
@@ -645,6 +646,7 @@ async function getMapMarkersUncached(): Promise<MapMarker[]> {
         href: `/persona/${c.id}`,
         source: c.source ?? undefined,
         approx: c.source ? true : undefined,
+        city: c.city ?? undefined,
       });
     } else if (c.status === "LOOKING_FOR_SOMEONE") {
       if (c.found_at) continue;
@@ -658,6 +660,7 @@ async function getMapMarkersUncached(): Promise<MapMarker[]> {
         href: `/persona/${c.id}`,
         source: c.source ?? undefined,
         approx: c.source ? true : undefined,
+        city: c.city ?? undefined,
       });
     }
   }
@@ -676,6 +679,7 @@ async function getMapMarkersUncached(): Promise<MapMarker[]> {
       subtitle: subtitle || undefined,
       href: `/solicitud/${r.id}`,
       source: r.source ?? undefined,
+      city: r.city ?? undefined,
     });
   }
 
@@ -693,6 +697,7 @@ async function getMapMarkersUncached(): Promise<MapMarker[]> {
         [o.description, o.city, o.availability].filter(Boolean).join(" · ").slice(0, 200) ||
         undefined,
       href: "",
+      city: o.city ?? undefined,
     });
   }
 

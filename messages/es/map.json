@@ -17,5 +17,9 @@
   "title": "🗺️ Mapa de ayuda",
   "wantToHelp": "🤝 Quiero ayudar",
   "askForHelp": "🆘 Pedir ayuda",
-  "hint": "Toca un punto para ver detalles. Usa los filtros para mostrar u ocultar categorías."
+  "hint": "Toca un punto para ver detalles. Usa los filtros para mostrar u ocultar categorías.",
+  "cityFilter": {
+    "label": "Ciudad",
+    "all": "Todo el país"
+  }
 }
