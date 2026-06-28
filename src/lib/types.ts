@@ -156,6 +156,64 @@ export type LatLng = { lat: number; lng: number };
 // people, available helpers, and curated relief/collection centers.
 export type MarkerKind = "need" | "missing" | "helper" | "center" | "damaged";
 
+// ── Hospital supply status hub (issue #76) ───────────────────────────────────
+
+export type SupplyStatus = "green" | "yellow" | "red" | "unknown";
+export type SupplyCategory = "SUPPLIES" | "BEDS" | "STAFF" | "EQUIPMENT";
+export type ConfidenceLevel = "CONFIRMED" | "PENDING_REVIEW" | "EXTRACTED";
+
+export interface PublicHospital {
+  id: string;
+  name: string;
+  state: string | null;
+  city: string | null;
+  address: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  type: string | null;
+  created_at: string;
+}
+
+export interface PublicHospitalSupplyStatus {
+  id: string;
+  hospital_id: string;
+  category: SupplyCategory;
+  overall_status: SupplyStatus;
+  source: string | null;
+  confidence_level: ConfidenceLevel;
+  updated_at: string;
+  verified_at: string | null;
+  expires_at: string | null;
+  hospital_name: string;
+  hospital_state: string | null;
+  hospital_city: string | null;
+  hospital_lat: number | null;
+  hospital_lng: number | null;
+}
+
+export interface PublicSupplyItem {
+  id: string;
+  supply_status_id: string;
+  name: string;
+  item_type: string | null;
+  quantity_required: number | null;
+  unit: string | null;
+  priority: "critical" | "high" | "medium" | "low" | null;
+  state: "needed" | "sufficient" | "unavailable" | null;
+}
+
+// ── Hospital POCs (issue #78) ────────────────────────────────────────────────
+
+export type PocRole = "reporter" | "verifier" | "admin";
+
+export interface PublicHospitalPoc {
+  id: string;
+  display_name: string;
+  role: PocRole;
+  hospital_id: string;
+  created_at: string;
+}
+
 export interface MapMarker {
   id: string;
   kind: MarkerKind;
